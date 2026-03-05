@@ -1,4 +1,4 @@
-﻿# UPS_PoD_Downloader.ps1
+﻿# UPS_PoD_Letolto.ps1
 # UPS Proof of Delivery automatizált letöltő
 # Futtatás: Jobb klikk -> Run with PowerShell
 
@@ -719,20 +719,20 @@ def main():
             update_progress(processed, total)
             log_success(f"Feldolgozva: {processed}/{total}")
 
-        # [4] Excel mentés - csak egyszer, a cikluson kívül
+        # [4] Excel mentés - letöltési mappába
         log_message("")
         log_message("[4/5] Excel mentese...")
-        output_path = excel_path.replace('.xlsx', '_FELDOLGOZOTT.xlsx')
-        if output_path == excel_path:
-            output_path = excel_path + '_FELDOLGOZOTT.xlsx'
+        excel_filename = os.path.basename(excel_path).replace('.xlsx', '_FELDOLGOZOTT.xlsx')
+        output_path = os.path.join(download_folder, excel_filename)
         try:
             wb.save(output_path)
-            log_success(f"Excel mentve: {output_path}")
-            log_success(f"Eredmeny: {success_count}/{total} sikeres")
+            sys.stdout.write(f"LOG: [OK] Excel mentve: {output_path}\n")
+            sys.stdout.write(f"LOG: [OK] Eredmeny: {success_count}/{total} sikeres\n")
+            sys.stdout.write("LOG: [5/5] Kesz!\n")
+            sys.stdout.flush()
         except Exception as e:
             log_error("Excel mentesi hiba", str(e)); return 1
 
-        log_message("[5/5] Kesz!")
         return 0
 
     except Exception as e:
