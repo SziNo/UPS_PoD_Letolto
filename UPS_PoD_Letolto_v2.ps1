@@ -646,36 +646,17 @@ def main():
             except Exception as e:
                 log_error("Track gomb hiba", str(e)); continue
 
-            # Lementjuk a jelenlegi View Details elemet ha letezik (stale detection)
-            old_view_details = driver.find_elements(By.ID, "st_App_View_Details")
-            old_element = old_view_details[0] if old_view_details else None
-
             human_click(driver, track_btn)
             log_success("Track gomb megnyomva")
 
-            log_step("Varas", "Tracking eredmenyre varunk...")
-            try:
-                if old_element:
-                    WebDriverWait(driver, 10).until(
-                        EC.staleness_of(old_element)
-                    )
-                # Varunk amelyik elobb megjelenik: View Details VAGY Notify Me gomb
-                WebDriverWait(driver, 30).until(
-                    lambda d: (
-                        d.find_elements(By.ID, "st_App_View_Details") or
-                        d.find_elements(By.ID, "stApp_btnSendMeUpdate") or
-                        d.find_elements(By.ID, "stApp_btnProofOfDeliveryonDetails")
-                    )
-                )
-                log_success("Tracking eredmeny betoltodott")
-            except TimeoutException:
-                log_error("Tracking eredmeny nem toltodott be 30mp alatt, sor kihagyva")
-                continue
+            # Varunk hogy az oldal betoltodjon (max 15mp)
+            time.sleep(15)
+            log_success("Varakozas kesz, POD link ellenorzese...")
 
             close_policy_popup(driver)
             close_chat_if_present(driver)
 
-            log_step("3c", "POD link ellenorzese...")
+            # Van POD link?
             pod_link = None
             used = ""
             for by, sel, desc in [
@@ -683,16 +664,15 @@ def main():
                 (By.LINK_TEXT, "Proof of Delivery", "Link szoveg"),
                 (By.PARTIAL_LINK_TEXT, "Proof", "Reszleges")
             ]:
-                try:
-                    pod_link = WebDriverWait(driver, 3).until(EC.presence_of_element_located((by, sel)))
+                elems = driver.find_elements(by, sel)
+                if elems:
+                    pod_link = elems[0]
                     used = desc
-                    log_step("3c", f"POD link talalva: {desc}")
+                    log_step("POD", f"POD link talalva: {desc}")
                     break
-                except:
-                    continue
 
             if not pod_link:
-                log_error("Nincs POD link - UPS meg nem toltotte fel, sor kihagyva")
+                log_error("Nincs POD link - sor kihagyva, kovetkezo sor")
                 continue
             log_success("POD link megtalalhato - folytatjuk")
 
