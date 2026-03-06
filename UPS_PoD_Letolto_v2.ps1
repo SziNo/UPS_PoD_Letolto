@@ -671,7 +671,15 @@ def main():
                     break
 
             if not pod_link:
-                log_error("Nincs POD link - sor kihagyva, kovetkezo sor")
+                log_error("Nincs POD link - sor kihagyva, visszanavigalas...")
+                driver.get(ups_url)
+                time.sleep(random.uniform(3, 5))
+                try:
+                    WebDriverWait(driver, 15).until(
+                        EC.presence_of_element_located((By.ID, "stApp_trackingNumber"))
+                    )
+                except TimeoutException:
+                    pass
                 continue
             log_success("POD link megtalalhato - folytatjuk")
 
