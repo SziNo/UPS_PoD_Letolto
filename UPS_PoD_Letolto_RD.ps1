@@ -341,7 +341,6 @@ import base64
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -548,7 +547,7 @@ def main():
     try:
         chrome_options = Options()
         chrome_options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
-        service = Service(ChromeDriverManager().install())
+        service = Service(executable_path=r"C:\WebDriver\chromedriver.exe")
         driver = webdriver.Chrome(service=service, options=chrome_options)
         log_success(f"Csatlakozva! Jelenlegi URL: {driver.current_url}")
     except Exception as e:
