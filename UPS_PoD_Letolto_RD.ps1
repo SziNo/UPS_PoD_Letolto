@@ -1,4 +1,4 @@
-# UPS_POD_Downloader.ps1
+﻿# UPS_POD_Downloader.ps1
 # UPS Proof of Delivery automatizált letöltő
 # Futtatás: Jobb klikk -> Run with PowerShell
 
