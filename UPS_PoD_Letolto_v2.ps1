@@ -549,9 +549,17 @@ def main():
         return 1
 
     try:
-        driver.execute_script("window.open('');")
-        time.sleep(0.5)
-        driver.switch_to.window(driver.window_handles[-1])
+        # Bezarjuk az osszes meglevo tabot, csak egy maradjon
+        all_handles = driver.window_handles
+        if len(all_handles) > 1:
+            log_step("Init", f"{len(all_handles)} tab talalhato, bezarjuk a feleslegeseket...")
+            # Az elso tabon maradunk, a tobbi bezarasra kerul
+            driver.switch_to.window(all_handles[0])
+            for handle in all_handles[1:]:
+                driver.switch_to.window(handle)
+                driver.close()
+            driver.switch_to.window(driver.window_handles[0])
+            log_success("Felesleges tabok bezarva, 1 tab maradt")
 
         log_step("Nav", f"Navigalas: {ups_url}")
         driver.get(ups_url)
@@ -635,13 +643,24 @@ def main():
                     EC.element_to_be_clickable((By.ID, "stApp_btnTrack"))
                 )
                 log_success("Track gomb megtalálva")
-                human_click(driver, track_btn)
-                log_success("Track gomb megnyomva")
             except Exception as e:
                 log_error("Track gomb hiba", str(e)); continue
 
+            # Lementjuk a jelenlegi View Details elemet ha letezik (stale detection)
+            old_view_details = driver.find_elements(By.ID, "st_App_View_Details")
+            old_element = old_view_details[0] if old_view_details else None
+
+            human_click(driver, track_btn)
+            log_success("Track gomb megnyomva")
+
             log_step("Varas", "Tracking eredmenyre varunk...")
             try:
+                if old_element:
+                    # Varunk hogy a regi elem eltunjon (stale)
+                    WebDriverWait(driver, 10).until(
+                        EC.staleness_of(old_element)
+                    )
+                # Varunk az uj eredmenyre
                 WebDriverWait(driver, 30).until(
                     EC.presence_of_element_located((By.ID, "st_App_View_Details"))
                 )
