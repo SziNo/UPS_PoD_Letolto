@@ -447,7 +447,14 @@ def save_pod_pdf(driver, download_folder, new_name, tracking_window):
                 print_window = new_wins.pop()
                 driver.switch_to.window(print_window)
                 log_success(f"Print preview ablakra valtva, URL: {driver.current_url}")
-                time.sleep(3)
+                # Dinamikus varakozas - max 10mp, de ha betoltott azonnal tovabb
+                wait_start = time.time()
+                while time.time() - wait_start < 10:
+                    state = driver.execute_script("return document.readyState")
+                    if state == "complete":
+                        log_success("Print ablak betoltodott, tovabb")
+                        break
+                    time.sleep(0.5)
             else:
                 log_step("PDF", "Nem nyilt uj ablak, maradunk")
         except TimeoutException:
@@ -455,6 +462,8 @@ def save_pod_pdf(driver, download_folder, new_name, tracking_window):
 
         log_step("PDF", "CDP PDF mentes a print preview ablakbol...")
         try:
+            driver.set_page_load_timeout(30)
+            driver.set_script_timeout(30)
             pdf_data = driver.execute_cdp_cmd("Page.printToPDF", {
                 "printBackground": True,
                 "paperWidth": 8.27,
