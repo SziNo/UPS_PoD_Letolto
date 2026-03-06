@@ -649,14 +649,13 @@ def main():
             human_click(driver, track_btn)
             log_success("Track gomb megnyomva")
 
-            # Varunk hogy az oldal betoltodjon (max 15mp)
-            time.sleep(15)
-            log_success("Varakozas kesz, POD link ellenorzese...")
+            time.sleep(8)
+            log_success("Oldal betoltodott, POD link ellenorzese...")
 
             close_policy_popup(driver)
             close_chat_if_present(driver)
 
-            # Van POD link?
+            # Van POD link? - azonnali ellenorzés, nincs varakozas
             pod_link = None
             used = ""
             for by, sel, desc in [
@@ -668,7 +667,7 @@ def main():
                 if elems:
                     pod_link = elems[0]
                     used = desc
-                    log_step("POD", f"POD link talalva: {desc}")
+                    log_success(f"POD link talalva: {desc}")
                     break
 
             if not pod_link:
