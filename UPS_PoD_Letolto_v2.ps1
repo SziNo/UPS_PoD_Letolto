@@ -637,29 +637,23 @@ def main():
                 log_success("Track gomb megtalálva")
                 human_click(driver, track_btn)
                 log_success("Track gomb megnyomva")
-
-                log_step("Varas", "Tracking eredmenyre varunk...")
-                try:
-                    WebDriverWait(driver, 30).until(
-                        EC.presence_of_element_located((By.ID, "st_App_View_Details"))
-                    )
-                    log_success("Tracking eredmeny betoltodott")
-                except TimeoutException:
-                    log_error("Tracking eredmeny nem toltodott be 30mp alatt, sor kihagyva")
-                    continue
-
-                if not driver.find_elements(By.ID, "stApp_btnProofOfDeliveryonDetails"):
-                    log_error("Nincs POD link - UPS meg nem toltotte fel, sor kihagyva")
-                    continue
-                log_success("POD link megtalalhato - folytatjuk")
-
             except Exception as e:
                 log_error("Track gomb hiba", str(e)); continue
+
+            log_step("Varas", "Tracking eredmenyre varunk...")
+            try:
+                WebDriverWait(driver, 30).until(
+                    EC.presence_of_element_located((By.ID, "st_App_View_Details"))
+                )
+                log_success("Tracking eredmeny betoltodott")
+            except TimeoutException:
+                log_error("Tracking eredmeny nem toltodott be 30mp alatt, sor kihagyva")
+                continue
 
             close_policy_popup(driver)
             close_chat_if_present(driver)
 
-            log_step("3c", "POD link keresese...")
+            log_step("3c", "POD link ellenorzese...")
             pod_link = None
             used = ""
             for by, sel, desc in [
@@ -668,7 +662,7 @@ def main():
                 (By.PARTIAL_LINK_TEXT, "Proof", "Reszleges")
             ]:
                 try:
-                    pod_link = WebDriverWait(driver, 5).until(EC.presence_of_element_located((by, sel)))
+                    pod_link = WebDriverWait(driver, 3).until(EC.presence_of_element_located((by, sel)))
                     used = desc
                     log_step("3c", f"POD link talalva: {desc}")
                     break
@@ -676,7 +670,9 @@ def main():
                     continue
 
             if not pod_link:
-                log_error("POD link nem talalhato"); continue
+                log_error("Nincs POD link - UPS meg nem toltotte fel, sor kihagyva")
+                continue
+            log_success("POD link megtalalhato - folytatjuk")
 
             tracking_window = driver.current_window_handle
             human_click(driver, pod_link)
