@@ -5,6 +5,10 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+# Proxy beallitas a Selenium Manager / webdriver letolteshez
+$env:HTTP_PROXY = "http://cloudproxy.dhl.com:10123"
+$env:HTTPS_PROXY = "http://cloudproxy.dhl.com:10123"
+
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "UPS PoD Letöltő"
 $form.Size = New-Object System.Drawing.Size(650, 780)
