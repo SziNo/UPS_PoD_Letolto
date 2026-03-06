@@ -5,9 +5,10 @@
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
-# Proxy beallitas a Selenium Manager / webdriver letolteshez
+# Proxy beallitas
 $env:HTTP_PROXY = "http://cloudproxy.dhl.com:10123"
 $env:HTTPS_PROXY = "http://cloudproxy.dhl.com:10123"
+$env:NO_PROXY = "127.0.0.1,localhost"
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "UPS PoD Letöltő"
