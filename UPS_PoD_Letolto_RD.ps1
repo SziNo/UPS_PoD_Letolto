@@ -476,6 +476,7 @@ def save_pod_pdf(driver, download_folder, new_name, tracking_window):
                 "marginBottom": 0.4,
                 "marginLeft": 0.4,
                 "marginRight": 0.4,
+                "scale": 0.85,
             })
             pdf_bytes = base64.b64decode(pdf_data['data'])
             output_path = os.path.join(download_folder, f"{new_name}.pdf")
