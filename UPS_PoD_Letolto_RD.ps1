@@ -245,10 +245,14 @@ $stopButton.Enabled = $false
 $stopButton.Add_Click({
     $script:stopRequested = $true
     Write-Log "LEALLAS kérve..."
+    $stopFile = Join-Path $env:TEMP "ups_pod_stop.txt"
+    Set-Content -Path $stopFile -Value "stop" -Force
     if ($script:pythonProcess -and !$script:pythonProcess.HasExited) {
-        Set-Content -Path (Join-Path $env:TEMP "ups_pod_stop.txt") -Value "stop" -Force
-        Start-Sleep -Seconds 3
-        if (!$script:pythonProcess.HasExited) { $script:pythonProcess.Kill(); Write-Log "Folyamat leállítva." }
+        Start-Sleep -Seconds 2
+        if (!$script:pythonProcess.HasExited) {
+            $script:pythonProcess.Kill()
+            Write-Log "Folyamat kenyszeritve leallitva."
+        }
     }
 })
 $form.Controls.Add($stopButton)
@@ -805,12 +809,20 @@ if __name__ == "__main__":
         if ($data -ne $null) {
             if ($data.StartsWith("LOG: ")) {
                 $message = $data.Substring(5)
-                $form.BeginInvoke([Action]{ Write-Log $message })
+                $form.Invoke([Action]{
+                    $logBox.AppendText($message + "`r`n")
+                    $logBox.ScrollToCaret()
+                    $logBox.Refresh()
+                })
             } elseif ($data.StartsWith("PROGRESS: ")) {
                 $parts = $data.Substring(10).Split(',')
                 if ($parts.Count -eq 2) {
                     $current = [int]$parts[0]; $total = [int]$parts[1]
-                    $form.BeginInvoke([Action]{ $progressBar.Maximum = $total; $progressBar.Value = $current })
+                    $form.Invoke([Action]{
+                        $progressBar.Maximum = $total
+                        $progressBar.Value = $current
+                        $progressBar.Refresh()
+                    })
                 }
             }
         }
@@ -819,7 +831,11 @@ if __name__ == "__main__":
     $errorEvent = Register-ObjectEvent -InputObject $process -EventName 'ErrorDataReceived' -Action {
         $data = $EventArgs.Data
         if ($data -ne $null) {
-            $form.BeginInvoke([Action]{ Write-Log "PYTHON HIBA: $data" })
+            $form.Invoke([Action]{
+                $logBox.AppendText("PYTHON HIBA: $data`r`n")
+                $logBox.ScrollToCaret()
+                $logBox.Refresh()
+            })
             Add-Content -Path "C:\temp\python_hibak.log" -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $data`r`n" -ErrorAction SilentlyContinue
         }
     }
