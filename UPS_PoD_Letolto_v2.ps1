@@ -656,13 +656,16 @@ def main():
             log_step("Varas", "Tracking eredmenyre varunk...")
             try:
                 if old_element:
-                    # Varunk hogy a regi elem eltunjon (stale)
                     WebDriverWait(driver, 10).until(
                         EC.staleness_of(old_element)
                     )
-                # Varunk az uj eredmenyre
+                # Varunk amelyik elobb megjelenik: View Details VAGY Notify Me gomb
                 WebDriverWait(driver, 30).until(
-                    EC.presence_of_element_located((By.ID, "st_App_View_Details"))
+                    lambda d: (
+                        d.find_elements(By.ID, "st_App_View_Details") or
+                        d.find_elements(By.ID, "stApp_btnSendMeUpdate") or
+                        d.find_elements(By.ID, "stApp_btnProofOfDeliveryonDetails")
+                    )
                 )
                 log_success("Tracking eredmeny betoltodott")
             except TimeoutException:
@@ -758,7 +761,8 @@ def main():
     except Exception as e:
         log_error("Varatlan hiba", str(e)); return 1
     finally:
-        log_message("A POD Chrome nyitva maradt.")
+        sys.stdout.write("LOG: A POD Chrome nyitva maradt.\n")
+        sys.stdout.flush()
         if os.path.exists(STOP_FILE):
             os.remove(STOP_FILE)
 
