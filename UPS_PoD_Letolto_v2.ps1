@@ -649,13 +649,19 @@ def main():
             human_click(driver, track_btn)
             log_success("Track gomb megnyomva")
 
-            time.sleep(8)
-            log_success("Oldal betoltodott, POD link ellenorzese...")
+            # Dinamikus varakozas - max 8mp, de ha megjelenik a POD link azonnal tovabb
+            log_step("Varas", "Tracking eredmenyre varunk (max 8mp)...")
+            wait_start = time.time()
+            while time.time() - wait_start < 8:
+                if driver.find_elements(By.ID, "stApp_btnProofOfDeliveryonDetails"):
+                    log_success("POD link megjelent, tovabb")
+                    break
+                time.sleep(0.5)
 
             close_policy_popup(driver)
             close_chat_if_present(driver)
 
-            # Van POD link? - azonnali ellenorzés, nincs varakozas
+            # Van POD link?
             pod_link = None
             used = ""
             for by, sel, desc in [
