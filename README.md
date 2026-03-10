@@ -67,8 +67,8 @@ pip install pandas openpyxl selenium
 1. Nyisd meg a repository GitHub oldalát
 2. Kattints a zöld **„Code"** gombra
 3. Válaszd a **„Download ZIP"** lehetőséget
-4. Csomagold ki a letöltött mappát
-5. Helyezd el egy könnyen elérhető helyre, pl. `C:\temp\UPS_PoD_Letolto-main`
+4. Csomagold ki a letöltött mappát `UPS_PoD_Letolto-main`
+5. Helyezd el a `C:\temp` mappába 
 
 ### 4. Fájl feloldása (unblock)
 
