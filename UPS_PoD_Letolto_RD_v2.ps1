@@ -10,6 +10,47 @@ $env:HTTP_PROXY = "http://cloudproxy.dhl.com:10123"
 $env:HTTPS_PROXY = "http://cloudproxy.dhl.com:10123"
 $env:NO_PROXY = "127.0.0.1,localhost"
 
+function Write-Log {
+    param($Message)
+    $logBox.AppendText($Message + "`r`n")
+    $logBox.ScrollToCaret()
+    $logBox.Refresh()
+}
+
+function Clear-AllChromeProcesses {
+    param([switch]$Silent)
+    
+    $log = { param($msg) if (-not $Silent) { try { Write-Log $msg } catch {} } }
+    
+    & $log "Chrome folyamatok takaritasa..."
+    
+    $chromeProcs = Get-Process -Name "chrome" -ErrorAction SilentlyContinue
+    if ($chromeProcs) {
+        $chromeProcs | Stop-Process -Force -ErrorAction SilentlyContinue
+        & $log "  Chrome leallitva"
+    }
+    
+    $driverProcs = Get-Process -Name "chromedriver" -ErrorAction SilentlyContinue
+    if ($driverProcs) {
+        $driverProcs | Stop-Process -Force -ErrorAction SilentlyContinue
+        & $log "  Chromedriver leallitva"
+    }
+    
+    Start-Sleep -Seconds 1
+    $portCheck = Test-NetConnection -ComputerName 127.0.0.1 -Port 9222 -WarningAction SilentlyContinue -InformationLevel Quiet
+    if (-not $portCheck) {
+        & $log "  Port 9222 szabad"
+    } else {
+        try {
+            $pid9222 = (netstat -ano | Select-String ":9222" | Select-String "LISTENING") -replace ".*\s+(\d+)$","$1"
+            if ($pid9222) {
+                Stop-Process -Id ([int]$pid9222.Trim()) -Force -ErrorAction SilentlyContinue
+                & $log "  Port 9222 folyamat leallitva"
+            }
+        } catch {}
+    }
+}
+
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "UPS PoD Letöltő"
 $form.Size = New-Object System.Drawing.Size(650, 780)
@@ -57,13 +98,9 @@ $launchChromeButton.ForeColor = "White"
 $launchChromeButton.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
 $launchChromeButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1] Kéz kurzor
 $launchChromeButton.Add_Click({
-    $portCheck = Test-NetConnection -ComputerName 127.0.0.1 -Port 9222 -WarningAction SilentlyContinue -InformationLevel Quiet
-    if ($portCheck) {
-        Write-Log "POD Chrome mar fut a 9222-es porton."
-        $chromeStatus.Text = "✓ POD Chrome fut"
-        $chromeStatus.ForeColor = "DarkGreen"
-        return
-    }
+    # Elso lepés: minden Chrome folyamat leolese
+    Clear-AllChromeProcesses
+    Start-Sleep -Seconds 1
 
     $chromePaths = @(
         "C:\Program Files\Google\Chrome\Application\chrome.exe",
@@ -285,12 +322,7 @@ $exitButton.Add_Click({
 })
 $form.Controls.Add($exitButton)
 
-function Write-Log {
-    param($Message)
-    $logBox.AppendText($Message + "`r`n")
-    $logBox.ScrollToCaret()
-    $logBox.Refresh()
-}
+
 
 # =====================================================
 # LETÖLTÉS INDÍTÁSA
@@ -883,11 +915,13 @@ if __name__ == "__main__":
     Unregister-Event -SourceIdentifier $errorEvent.Name -Force -ErrorAction SilentlyContinue
     Remove-Item $tempPython -Force -ErrorAction SilentlyContinue
 
+    # Chrome takaritas a script lefutasa utan
+    Clear-AllChromeProcesses
+
     Write-Log ""
     Write-Log "="*50
     if ($exitCode -eq 0) {
         Write-Log "SIKERESEN BEFEJEZODOTT"
-        # Ablak előtérbe hozása
         $form.TopMost = $true
         $form.Activate()
         [System.Windows.Forms.MessageBox]::Show("A letöltés sikeresen befejeződött!", "Siker", "OK", "Information")
@@ -906,20 +940,14 @@ if __name__ == "__main__":
     $stopButton.Enabled = $false
 })
 
-# Chrome bezarasa ha a form bezarodik
+# Vegso takaritas ha a form bezarodik
 $form.Add_FormClosing({
     if ($script:pythonProcess -and !$script:pythonProcess.HasExited) {
         Set-Content -Path (Join-Path $env:TEMP "ups_pod_stop.txt") -Value "stop" -Force
         Start-Sleep -Seconds 1
         if (!$script:pythonProcess.HasExited) { $script:pythonProcess.Kill() }
     }
-    # 9222-es porton futo Chrome bezarasa
-    try {
-        $pid9222 = (netstat -ano | Select-String ":9222" | Select-String "LISTENING") -replace ".*\s+(\d+)$","$1"
-        if ($pid9222) {
-            Stop-Process -Id ([int]$pid9222.Trim()) -Force -ErrorAction SilentlyContinue
-        }
-    } catch {}
+    Clear-AllChromeProcesses -Silent
 })
 
 $form.ShowDialog()
