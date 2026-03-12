@@ -132,8 +132,23 @@ $launchChromeButton.Add_Click({
 })
 $form.Controls.Add($launchChromeButton)
 
+$cleanChromeButton = New-Object System.Windows.Forms.Button
+$cleanChromeButton.Location = New-Object System.Drawing.Point(220, 175)
+$cleanChromeButton.Size = New-Object System.Drawing.Size(180, 32)
+$cleanChromeButton.Text = "Chrome tisztítás"
+$cleanChromeButton.BackColor = "Crimson"
+$cleanChromeButton.ForeColor = "White"
+$cleanChromeButton.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
+$cleanChromeButton.Cursor = [System.Windows.Forms.Cursors]::Hand
+$cleanChromeButton.Add_Click({
+    Clear-AllChromeProcesses -IncludeDriver
+    $chromeStatus.Text = "Chrome tisztítva - indíthatod újra"
+    $chromeStatus.ForeColor = "DarkRed"
+})
+$form.Controls.Add($cleanChromeButton)
+
 $chromeStatus = New-Object System.Windows.Forms.Label
-$chromeStatus.Location = New-Object System.Drawing.Point(220, 183)
+$chromeStatus.Location = New-Object System.Drawing.Point(410, 183)
 $chromeStatus.Size = New-Object System.Drawing.Size(400, 18)
 $chromeStatus.Text = "Chrome még nem indult el"
 $chromeStatus.Font = New-Object System.Drawing.Font("Arial", 9)
