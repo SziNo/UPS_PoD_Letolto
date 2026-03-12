@@ -18,7 +18,7 @@ function Write-Log {
 }
 
 function Clear-AllChromeProcesses {
-    param([switch]$Silent)
+    param([switch]$Silent, [switch]$IncludeDriver)
     
     $log = { param($msg) if (-not $Silent) { try { Write-Log $msg } catch {} } }
     
@@ -30,10 +30,13 @@ function Clear-AllChromeProcesses {
         & $log "  Chrome leallitva"
     }
     
-    $driverProcs = Get-Process -Name "chromedriver" -ErrorAction SilentlyContinue
-    if ($driverProcs) {
-        $driverProcs | Stop-Process -Force -ErrorAction SilentlyContinue
-        & $log "  Chromedriver leallitva"
+    # Chromedriver csak ha explicitly kerjuk (pl. script utan)
+    if ($IncludeDriver) {
+        $driverProcs = Get-Process -Name "chromedriver" -ErrorAction SilentlyContinue
+        if ($driverProcs) {
+            $driverProcs | Stop-Process -Force -ErrorAction SilentlyContinue
+            & $log "  Chromedriver leallitva"
+        }
     }
     
     Start-Sleep -Seconds 1
@@ -915,8 +918,8 @@ if __name__ == "__main__":
     Unregister-Event -SourceIdentifier $errorEvent.Name -Force -ErrorAction SilentlyContinue
     Remove-Item $tempPython -Force -ErrorAction SilentlyContinue
 
-    # Chrome takaritas a script lefutasa utan
-    Clear-AllChromeProcesses
+    # Chrome takaritas a script lefutasa utan (chromedriver-rel egyutt)
+    Clear-AllChromeProcesses -IncludeDriver
 
     Write-Log ""
     Write-Log "="*50
@@ -947,7 +950,7 @@ $form.Add_FormClosing({
         Start-Sleep -Seconds 1
         if (!$script:pythonProcess.HasExited) { $script:pythonProcess.Kill() }
     }
-    Clear-AllChromeProcesses -Silent
+    Clear-AllChromeProcesses -Silent -IncludeDriver
 })
 
 $form.ShowDialog()
