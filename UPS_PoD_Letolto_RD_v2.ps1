@@ -114,7 +114,7 @@ $launchChromeButton.Add_Click({
         return
     }
 
-    $profileDir = "$env:USERPROFILE\SeleniumProfile"
+    $profileDir = "$env:TEMP\SeleniumProfile_$([Environment]::UserName)"
     $upsUrl = $urlBox.Text.Trim()  # [3] UPS URL-re navigálás induláskor
     Start-Process $chromePath -ArgumentList "--remote-debugging-port=9222 --user-data-dir=`"$profileDir`" `"$upsUrl`""
     Write-Log "POD Chrome elindítva -> $upsUrl"
@@ -620,13 +620,22 @@ def main():
         all_handles = driver.window_handles
         if len(all_handles) > 1:
             log_step("Init", f"{len(all_handles)} tab talalhato, bezarjuk a feleslegeseket...")
-            # Az elso tabon maradunk, a tobbi bezarasra kerul
             driver.switch_to.window(all_handles[0])
             for handle in all_handles[1:]:
-                driver.switch_to.window(handle)
-                driver.close()
-            driver.switch_to.window(driver.window_handles[0])
-            log_success("Felesleges tabok bezarva, 1 tab maradt")
+                try:
+                    driver.switch_to.window(handle)
+                    url = driver.current_url
+                    if url.startswith("chrome://") or url.startswith("chrome-extension://"):
+                        log_step("Init", f"Belso Chrome tab kihagyva: {url}")
+                        continue
+                    driver.close()
+                except Exception as e:
+                    log_step("Init", f"Tab bezarasi hiba (kihagyva): {str(e)[:60]}")
+            try:
+                driver.switch_to.window(driver.window_handles[0])
+            except:
+                pass
+            log_success("Tab cleanup kesz")
 
         log_step("Nav", f"Navigalas: {ups_url}")
         driver.get(ups_url)
