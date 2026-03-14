@@ -24,18 +24,15 @@ function Clear-AllChromeProcesses {
     
     & $log "Chrome folyamatok takaritasa..."
     
-    $chromeProcs = Get-Process -Name "chrome" -ErrorAction SilentlyContinue
-    if ($chromeProcs) {
-        $chromeProcs | Stop-Process -Force -ErrorAction SilentlyContinue
-        & $log "  Chrome leallitva"
-    }
+    # Minden Chrome-kapcsolodo folyamat leolese
+    $chromeNames = @("chrome", "GoogleCrashHandler", "GoogleCrashHandler64", "software_reporter_tool")
+    if ($IncludeDriver) { $chromeNames += "chromedriver" }
     
-    # Chromedriver csak ha explicitly kerjuk (pl. script utan)
-    if ($IncludeDriver) {
-        $driverProcs = Get-Process -Name "chromedriver" -ErrorAction SilentlyContinue
-        if ($driverProcs) {
-            $driverProcs | Stop-Process -Force -ErrorAction SilentlyContinue
-            & $log "  Chromedriver leallitva"
+    foreach ($procName in $chromeNames) {
+        $procs = Get-Process -Name $procName -ErrorAction SilentlyContinue
+        if ($procs) {
+            $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+            & $log "  $procName leallitva"
         }
     }
     
