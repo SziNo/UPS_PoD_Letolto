@@ -292,16 +292,16 @@ $stopButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1]
 $stopButton.Enabled = $false
 $stopButton.Add_Click({
     $script:stopRequested = $true
-    Write-Log "LEALLAS kérve..."
-    $stopFile = Join-Path $env:TEMP "ups_pod_stop.txt"
-    Set-Content -Path $stopFile -Value "stop" -Force
+    Write-Log "LEALLAS kérve - Chrome es folyamatok leallitasa..."
+    Set-Content -Path (Join-Path $env:TEMP "ups_pod_stop.txt") -Value "stop" -Force
     if ($script:pythonProcess -and !$script:pythonProcess.HasExited) {
-        Start-Sleep -Seconds 2
-        if (!$script:pythonProcess.HasExited) {
-            $script:pythonProcess.Kill()
-            Write-Log "Folyamat kenyszeritve leallitva."
-        }
+        $script:pythonProcess.Kill()
     }
+    Clear-AllChromeProcesses -IncludeDriver
+    Write-Log "Leallitva."
+    $progressBar.Value = 0
+    $startButton.Enabled = $true
+    $stopButton.Enabled = $false
 })
 $form.Controls.Add($stopButton)
 
@@ -325,10 +325,9 @@ $exitButton.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.Fo
 $exitButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1]
 $exitButton.Add_Click({
     if ($script:pythonProcess -and !$script:pythonProcess.HasExited) {
-        Set-Content -Path (Join-Path $env:TEMP "ups_pod_stop.txt") -Value "stop" -Force
-        Start-Sleep -Seconds 2
-        if (!$script:pythonProcess.HasExited) { $script:pythonProcess.Kill() }
+        $script:pythonProcess.Kill()
     }
+    Clear-AllChromeProcesses -IncludeDriver
     $form.Close()
 })
 $form.Controls.Add($exitButton)
