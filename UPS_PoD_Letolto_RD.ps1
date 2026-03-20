@@ -1027,7 +1027,6 @@ if __name__ == "__main__":
             $progressBar.Value = 0
             $startButton.Enabled = $true
             $stopButton.Enabled = $false
-            Clear-AllChromeProcesses -IncludeDriver
         })
     })
     $script:bgThread.IsBackground = $true
