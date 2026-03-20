@@ -863,6 +863,8 @@ def main():
         except Exception as e:
             log_error("Excel mentesi hiba", str(e)); return 1
 
+        sys.stdout.write("PROCESS_FINISHED:0\n")
+        sys.stdout.flush()
         return 0
 
     except Exception as e:
@@ -881,6 +883,8 @@ def main():
             log_success(f"Sikeres sorok szama: {success_count}")
         except Exception as e2:
             log_error("Reszleges mentesi hiba", str(e2))
+        sys.stdout.write("PROCESS_FINISHED:1\n")
+        sys.stdout.flush()
         return 1
     finally:
         # Stop esetén is mentünk ha volt feldolgozás
@@ -906,9 +910,9 @@ if __name__ == "__main__":
     sys.exit(main())
 '@
 
-    $tempPython = [System.IO.Path]::GetTempFileName() + ".py"
+    $script:tempPython = [System.IO.Path]::GetTempFileName() + ".py"
     $utf8WithBom = New-Object System.Text.UTF8Encoding $true
-    [System.IO.File]::WriteAllText($tempPython, $pythonScript, $utf8WithBom)
+    [System.IO.File]::WriteAllText($script:tempPython, $pythonScript, $utf8WithBom)
 
     Write-Log "Python script futtatasa..."
     Write-Log ""
@@ -946,7 +950,7 @@ if __name__ == "__main__":
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $pythonExe
-    $psi.Arguments = "`"$tempPython`" `"$url`" `"$excelPath`" `"$downloadFolder`""
+    $psi.Arguments = "`"$script:tempPython`" `"$url`" `"$excelPath`" `"$downloadFolder`""
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
@@ -957,8 +961,9 @@ if __name__ == "__main__":
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $psi
     $script:pythonProcess = $process
+    $script:process = $process
 
-    $outputEvent = Register-ObjectEvent -InputObject $process -EventName 'OutputDataReceived' -Action {
+    $script:outputEvent = Register-ObjectEvent -InputObject $process -EventName 'OutputDataReceived' -Action {
         $data = $EventArgs.Data
         if ($data -ne $null) {
             if ($data.StartsWith("LOG: ")) {
@@ -978,11 +983,40 @@ if __name__ == "__main__":
                         $progressBar.Refresh()
                     })
                 }
+            } elseif ($data.StartsWith("PROCESS_FINISHED:")) {
+                $finishCode = $data.Substring(17)
+                $script:pythonProcess = $null
+                Unregister-Event -SourceIdentifier $script:outputEvent.Name -Force -ErrorAction SilentlyContinue
+                Unregister-Event -SourceIdentifier $script:errorEvent.Name -Force -ErrorAction SilentlyContinue
+                Unregister-Event -SourceIdentifier $script:exitedEvent.Name -Force -ErrorAction SilentlyContinue
+                Remove-Item $script:tempPython -Force -ErrorAction SilentlyContinue
+                Clear-AllChromeProcesses -IncludeDriver
+                $form.Invoke([Action]{
+                    Write-Log ""
+                    Write-Log "="*50
+                    if ($finishCode -eq "0") {
+                        Write-Log "SIKERESEN BEFEJEZODOTT"
+                        $form.TopMost = $true
+                        $form.Activate()
+                        [System.Windows.Forms.MessageBox]::Show("A letöltés sikeresen befejeződött!", "Siker", "OK", "Information")
+                        $form.TopMost = $false
+                    } else {
+                        Write-Log "HIBA TORTENT"
+                        $form.TopMost = $true
+                        $form.Activate()
+                        [System.Windows.Forms.MessageBox]::Show("Hiba történt! Ellenőrizd a naplót.", "Hiba", "OK", "Error")
+                        $form.TopMost = $false
+                    }
+                    Write-Log "="*50
+                    $progressBar.Value = 0
+                    $startButton.Enabled = $true
+                    $stopButton.Enabled = $false
+                })
             }
         }
     }
 
-    $errorEvent = Register-ObjectEvent -InputObject $process -EventName 'ErrorDataReceived' -Action {
+    $script:errorEvent = Register-ObjectEvent -InputObject $process -EventName 'ErrorDataReceived' -Action {
         $data = $EventArgs.Data
         if ($data -ne $null) {
             $form.Invoke([Action]{
@@ -995,14 +1029,14 @@ if __name__ == "__main__":
     }
 
     $process.EnableRaisingEvents = $true
-    $exitedEvent = Register-ObjectEvent -InputObject $process -EventName 'Exited' -Action {
-        $exitCode = $process.ExitCode
+    $script:exitedEvent = Register-ObjectEvent -InputObject $process -EventName 'Exited' -Action {
+        $exitCode = $script:process.ExitCode
         $script:pythonProcess = $null
 
-        Unregister-Event -SourceIdentifier $outputEvent.Name -Force -ErrorAction SilentlyContinue
-        Unregister-Event -SourceIdentifier $errorEvent.Name -Force -ErrorAction SilentlyContinue
-        Unregister-Event -SourceIdentifier $exitedEvent.Name -Force -ErrorAction SilentlyContinue
-        Remove-Item $tempPython -Force -ErrorAction SilentlyContinue
+        Unregister-Event -SourceIdentifier $script:outputEvent.Name -Force -ErrorAction SilentlyContinue
+        Unregister-Event -SourceIdentifier $script:errorEvent.Name -Force -ErrorAction SilentlyContinue
+        Unregister-Event -SourceIdentifier $script:exitedEvent.Name -Force -ErrorAction SilentlyContinue
+        Remove-Item $script:tempPython -Force -ErrorAction SilentlyContinue
 
         # Chrome takaritas a script lefutasa utan
         Clear-AllChromeProcesses -IncludeDriver
