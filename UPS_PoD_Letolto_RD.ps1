@@ -1001,6 +1001,7 @@ if __name__ == "__main__":
 
         Unregister-Event -SourceIdentifier $outputEvent.Name -Force -ErrorAction SilentlyContinue
         Unregister-Event -SourceIdentifier $errorEvent.Name -Force -ErrorAction SilentlyContinue
+        Unregister-Event -SourceIdentifier $exitedEvent.Name -Force -ErrorAction SilentlyContinue
         Remove-Item $tempPython -Force -ErrorAction SilentlyContinue
 
         # Chrome takaritas a script lefutasa utan
