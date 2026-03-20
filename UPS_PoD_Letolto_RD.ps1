@@ -1008,7 +1008,6 @@ if __name__ == "__main__":
         $script:pythonProcess = $null
         Remove-Item $script:tempPython -Force -ErrorAction SilentlyContinue
         $form.Invoke([Action]{
-            Clear-AllChromeProcesses -IncludeDriver
             Write-Log ""
             Write-Log "="*50
             if ($exitCode -eq 0) {
@@ -1028,6 +1027,7 @@ if __name__ == "__main__":
             $progressBar.Value = 0
             $startButton.Enabled = $true
             $stopButton.Enabled = $false
+            Clear-AllChromeProcesses -IncludeDriver
         })
     })
     $script:bgThread.IsBackground = $true
