@@ -291,6 +291,7 @@ $form.Controls.Add($progressBar)
 # --- Gombok ---
 $script:stopRequested = $false
 $script:pythonProcess = $null
+$script:formClosing = $false
 
 $stopButton = New-Object System.Windows.Forms.Button
 $stopButton.Location = New-Object System.Drawing.Point(330, 658)
@@ -863,8 +864,6 @@ def main():
         except Exception as e:
             log_error("Excel mentesi hiba", str(e)); return 1
 
-        sys.stdout.write("PROCESS_FINISHED:0\n")
-        sys.stdout.flush()
         return 0
 
     except Exception as e:
@@ -883,8 +882,6 @@ def main():
             log_success(f"Sikeres sorok szama: {success_count}")
         except Exception as e2:
             log_error("Reszleges mentesi hiba", str(e2))
-        sys.stdout.write("PROCESS_FINISHED:1\n")
-        sys.stdout.flush()
         return 1
     finally:
         # Stop esetén is mentünk ha volt feldolgozás
@@ -983,35 +980,6 @@ if __name__ == "__main__":
                         $progressBar.Refresh()
                     })
                 }
-            } elseif ($data.StartsWith("PROCESS_FINISHED:")) {
-                $finishCode = $data.Substring(17)
-                $script:pythonProcess = $null
-                Unregister-Event -SourceIdentifier $script:outputEvent.Name -Force -ErrorAction SilentlyContinue
-                Unregister-Event -SourceIdentifier $script:errorEvent.Name -Force -ErrorAction SilentlyContinue
-                Unregister-Event -SourceIdentifier $script:exitedEvent.Name -Force -ErrorAction SilentlyContinue
-                Remove-Item $script:tempPython -Force -ErrorAction SilentlyContinue
-                Clear-AllChromeProcesses -IncludeDriver
-                $form.Invoke([Action]{
-                    Write-Log ""
-                    Write-Log "="*50
-                    if ($finishCode -eq "0") {
-                        Write-Log "SIKERESEN BEFEJEZODOTT"
-                        $form.TopMost = $true
-                        $form.Activate()
-                        [System.Windows.Forms.MessageBox]::Show("A letöltés sikeresen befejeződött!", "Siker", "OK", "Information")
-                        $form.TopMost = $false
-                    } else {
-                        Write-Log "HIBA TORTENT"
-                        $form.TopMost = $true
-                        $form.Activate()
-                        [System.Windows.Forms.MessageBox]::Show("Hiba történt! Ellenőrizd a naplót.", "Hiba", "OK", "Error")
-                        $form.TopMost = $false
-                    }
-                    Write-Log "="*50
-                    $progressBar.Value = 0
-                    $startButton.Enabled = $true
-                    $stopButton.Enabled = $false
-                })
             }
         }
     }
@@ -1028,20 +996,19 @@ if __name__ == "__main__":
         }
     }
 
-    $process.EnableRaisingEvents = $true
-    $script:exitedEvent = Register-ObjectEvent -InputObject $process -EventName 'Exited' -Action {
+    $process.Start() | Out-Null
+    $process.BeginOutputReadLine()
+    $process.BeginErrorReadLine()
+
+    # Background thread - GUI szabad marad, WaitForExit itt var
+    $script:bgThread = [System.Threading.Thread]::new([System.Threading.ThreadStart]{
+        $script:process.WaitForExit()
+        if ($script:formClosing) { return }
         $exitCode = $script:process.ExitCode
         $script:pythonProcess = $null
-
-        Unregister-Event -SourceIdentifier $script:outputEvent.Name -Force -ErrorAction SilentlyContinue
-        Unregister-Event -SourceIdentifier $script:errorEvent.Name -Force -ErrorAction SilentlyContinue
-        Unregister-Event -SourceIdentifier $script:exitedEvent.Name -Force -ErrorAction SilentlyContinue
         Remove-Item $script:tempPython -Force -ErrorAction SilentlyContinue
-
-        # Chrome takaritas a script lefutasa utan
-        Clear-AllChromeProcesses -IncludeDriver
-
         $form.Invoke([Action]{
+            Clear-AllChromeProcesses -IncludeDriver
             Write-Log ""
             Write-Log "="*50
             if ($exitCode -eq 0) {
@@ -1051,7 +1018,7 @@ if __name__ == "__main__":
                 [System.Windows.Forms.MessageBox]::Show("A letöltés sikeresen befejeződött!", "Siker", "OK", "Information")
                 $form.TopMost = $false
             } else {
-                Write-Log "HIBA TORTENT (kód: $exitCode)"
+                Write-Log "HIBA TORTENT (kod: $exitCode)"
                 $form.TopMost = $true
                 $form.Activate()
                 [System.Windows.Forms.MessageBox]::Show("Hiba történt! Ellenőrizd a naplót.", "Hiba", "OK", "Error")
@@ -1062,16 +1029,14 @@ if __name__ == "__main__":
             $startButton.Enabled = $true
             $stopButton.Enabled = $false
         })
-    }
-
-    $process.Start() | Out-Null
-    $process.BeginOutputReadLine()
-    $process.BeginErrorReadLine()
-    # Nem varunk - a GUI szabad marad, az Exited event kezeli a befejezest
+    })
+    $script:bgThread.IsBackground = $true
+    $script:bgThread.Start()
 })
 
 # Vegso takaritas ha a form bezarodik
 $form.Add_FormClosing({
+    $script:formClosing = $true
     if ($script:pythonProcess -and !$script:pythonProcess.HasExited) {
         Set-Content -Path (Join-Path $env:TEMP "ups_pod_stop.txt") -Value "stop" -Force
         Start-Sleep -Seconds 1
