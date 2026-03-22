@@ -304,7 +304,6 @@ $form.Controls.Add($progressBar)
 # --- Gombok ---
 $script:stopRequested = $false
 $script:pythonProcess = $null
-$script:formClosing = $false
 
 $stopButton = New-Object System.Windows.Forms.Button
 $stopButton.Location = New-Object System.Drawing.Point(330, 658)
@@ -907,9 +906,9 @@ if __name__ == "__main__":
     sys.exit(main())
 '@
 
-    $script:tempPython = [System.IO.Path]::GetTempFileName() + ".py"
+    $tempPython = [System.IO.Path]::GetTempFileName() + ".py"
     $utf8WithBom = New-Object System.Text.UTF8Encoding $true
-    [System.IO.File]::WriteAllText($script:tempPython, $pythonScript, $utf8WithBom)
+    [System.IO.File]::WriteAllText($tempPython, $pythonScript, $utf8WithBom)
 
     Write-Log "Python script futtatasa..."
     Write-Log ""
@@ -946,7 +945,7 @@ if __name__ == "__main__":
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $pythonExe
-    $psi.Arguments = "`"$script:tempPython`" `"$url`" `"$excelPath`" `"$downloadFolder`""
+    $psi.Arguments = "`"$tempPython`" `"$url`" `"$excelPath`" `"$downloadFolder`""
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
@@ -957,9 +956,8 @@ if __name__ == "__main__":
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $psi
     $script:pythonProcess = $process
-    $script:process = $process
 
-    $script:outputEvent = Register-ObjectEvent -InputObject $process -EventName 'OutputDataReceived' -Action {
+    $outputEvent = Register-ObjectEvent -InputObject $process -EventName 'OutputDataReceived' -Action {
         $data = $EventArgs.Data
         if ($data -ne $null) {
             if ($data.StartsWith("LOG: ")) {
@@ -983,7 +981,7 @@ if __name__ == "__main__":
         }
     }
 
-    $script:errorEvent = Register-ObjectEvent -InputObject $process -EventName 'ErrorDataReceived' -Action {
+    $errorEvent = Register-ObjectEvent -InputObject $process -EventName 'ErrorDataReceived' -Action {
         $data = $EventArgs.Data
         if ($data -ne $null) {
             $form.Invoke([Action]{
@@ -995,18 +993,17 @@ if __name__ == "__main__":
         }
     }
 
-    $process.Start() | Out-Null
-    $process.BeginOutputReadLine()
-    $process.BeginErrorReadLine()
-
-    # Background thread - GUI szabad marad
-    $script:bgThread = [System.Threading.Thread]::new([System.Threading.ThreadStart]{
-        $script:process.WaitForExit()
-        if ($script:formClosing) { return }
-        $exitCode = $script:process.ExitCode
+    $process.EnableRaisingEvents = $true
+    $exitedEvent = Register-ObjectEvent -InputObject $process -EventName 'Exited' -Action {
+        $exitCode = $process.ExitCode
         $script:pythonProcess = $null
-        Remove-Item $script:tempPython -Force -ErrorAction SilentlyContinue
-        Clear-AllChromeProcesses -Silent -IncludeDriver
+
+        Unregister-Event -SourceIdentifier $outputEvent.Name -Force -ErrorAction SilentlyContinue
+        Unregister-Event -SourceIdentifier $errorEvent.Name -Force -ErrorAction SilentlyContinue
+        Remove-Item $tempPython -Force -ErrorAction SilentlyContinue
+
+        Clear-AllChromeProcesses -IncludeDriver
+
         $form.Invoke([Action]{
             Write-Log ""
             Write-Log "="*50
@@ -1017,7 +1014,7 @@ if __name__ == "__main__":
                 [System.Windows.Forms.MessageBox]::Show("A letöltés sikeresen befejeződött!", "Siker", "OK", "Information")
                 $form.TopMost = $false
             } else {
-                Write-Log "HIBA TORTENT (kod: $exitCode)"
+                Write-Log "HIBA TORTENT (kód: $exitCode)"
                 $form.TopMost = $true
                 $form.Activate()
                 [System.Windows.Forms.MessageBox]::Show("Hiba történt! Ellenőrizd a naplót.", "Hiba", "OK", "Error")
@@ -1028,14 +1025,15 @@ if __name__ == "__main__":
             $startButton.Enabled = $true
             $stopButton.Enabled = $false
         })
-    })
-    $script:bgThread.IsBackground = $true
-    $script:bgThread.Start()
+    }
+
+    $process.Start() | Out-Null
+    $process.BeginOutputReadLine()
+    $process.BeginErrorReadLine()
 })
 
 # Vegso takaritas ha a form bezarodik
 $form.Add_FormClosing({
-    $script:formClosing = $true
     if ($script:pythonProcess -and !$script:pythonProcess.HasExited) {
         Set-Content -Path (Join-Path $env:TEMP "ups_pod_stop.txt") -Value "stop" -Force
         Start-Sleep -Seconds 1
