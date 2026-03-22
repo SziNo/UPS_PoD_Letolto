@@ -608,7 +608,6 @@ def save_pod_pdf(driver, download_folder, new_name, tracking_window):
                 print_window = new_wins.pop()
                 driver.switch_to.window(print_window)
                 log_success(f"Print preview ablakra valtva, URL: {driver.current_url}")
-                # Dinamikus varakozas - max 10mp, de ha betoltott azonnal tovabb
                 wait_start = time.time()
                 while time.time() - wait_start < 10:
                     state = driver.execute_script("return document.readyState")
@@ -680,46 +679,38 @@ def main():
     log_message("UPS POD - debuggerAddress mod")
     log_message("="*60)
 
-    # ========== TEMP FAJL MASOLAS ==========
     log_message("[1/5] Excel beolvasasa...")
-    
-    # Eredeti fájl ellenőrzése
+
     if not os.path.exists(excel_path):
         log_error("Excel fajl nem talalhato!", excel_path)
         return 1
-    
-    # Temp fájl létrehozása időbélyeggel
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     excel_name, excel_ext = os.path.splitext(os.path.basename(excel_path))
     temp_excel = os.path.join(tempfile.gettempdir(), f"ups_pod_{excel_name}_{timestamp}{excel_ext}")
-    
+
     try:
         shutil.copy2(excel_path, temp_excel)
         log_success(f"Excel masolva temp-be: {temp_excel}")
     except Exception as e:
         log_error("Excel fajl masolasi hiba", str(e))
         return 1
-    
-    # Temp fájl használata minden művelethez
+
     try:
         df = pd.read_excel(temp_excel, sheet_name=0)
         log_success(f"Excel beolvasva - {len(df)} sor")
     except Exception as e:
         log_error("Excel olvasasi hiba", str(e))
-        try:
-            os.remove(temp_excel)
-        except:
-            pass
+        try: os.remove(temp_excel)
+        except: pass
         return 1
 
     required = ['Tracking Number', 'összefűz']
     missing = [c for c in required if c not in df.columns]
     if missing:
         log_error("Hianyzó oszlopok", str(missing))
-        try:
-            os.remove(temp_excel)
-        except:
-            pass
+        try: os.remove(temp_excel)
+        except: pass
         return 1
 
     try:
@@ -728,50 +719,41 @@ def main():
     except Exception as e:
         log_error("Excel megnyitasi hiba - lehet hogy a fajl zarolva van!", str(e))
         log_error("Megoldas: zard be az Excelt ha nyitva van, majd probald ujra")
-        try:
-            os.remove(temp_excel)
-        except:
-            pass
+        try: os.remove(temp_excel)
+        except: pass
         return 1
 
-    # ========== SZŰRÉS - KEZDŐ SOR ÉS ZÖLD SOROK ==========
     to_process = []
-    processed_count = 0  # Zöld sorok számlálója
+    processed_count = 0
+    skipped_count = 0
     for idx, row in df.iterrows():
-        excel_row = idx + 2  # Excel sor száma (1. sor az oszlopnevek)
-        
-        # 1. Kezdő sor ellenőrzés
+        excel_row = idx + 2
         if excel_row < start_row:
-            log_step("Szures", f"Sor {excel_row} kihagyva (kezdo sor: {start_row})")
+            skipped_count += 1
             continue
-        
-        # 2. Zöld sor ellenőrzés (csak a zöldet hagyjuk ki, a sárgát nem!)
         if is_row_processed(ws, excel_row):
             processed_count += 1
             continue
-            
         tracking = str(row['Tracking Number']).strip() if pd.notna(row['Tracking Number']) else ''
         new_name = str(row['összefűz']).strip() if pd.notna(row['összefűz']) else ''
         if not tracking or not new_name:
             continue
         to_process.append((idx, excel_row, tracking, new_name))
-    
-    # Összesítő log a zöld sorokról
+
+    if skipped_count > 0:
+        log_step("Szures", f"{skipped_count} sor kihagyva (kezdo sor: {start_row})")
     if processed_count > 0:
         log_step("Szures", f"{processed_count} sor mar feldolgozva (zold), kihagyva")
 
     total = len(to_process)
     if total == 0:
         log_message("Nincs feldolgozando sor.")
-        try:
-            os.remove(temp_excel)
-        except:
-            pass
+        try: os.remove(temp_excel)
+        except: pass
         return 0
     log_success(f"Feldolgozando sorok: {total}")
     update_progress(0, total)
 
-    # ========== CHROME CSATLAKOZÁS ==========
     log_message("[2/5] Csatlakozas a POD Chrome-hoz (port 9222)...")
     try:
         chrome_options = Options()
@@ -781,14 +763,11 @@ def main():
         log_success(f"Csatlakozva! Jelenlegi URL: {driver.current_url}")
     except Exception as e:
         log_error("Csatlakozasi hiba - fut-e a POD Chrome?", str(e))
-        try:
-            os.remove(temp_excel)
-        except:
-            pass
+        try: os.remove(temp_excel)
+        except: pass
         return 1
 
     try:
-        # Bezarjuk az osszes meglevo tabot, csak egy maradjon
         all_handles = driver.window_handles
         if len(all_handles) > 1:
             log_step("Init", f"{len(all_handles)} tab talalhato, bezarjuk a feleslegeseket...")
@@ -810,7 +789,6 @@ def main():
         sarga_fill = PatternFill(start_color=YELLOW_COLOR, end_color=YELLOW_COLOR, fill_type='solid')
 
         for idx, excel_row, tracking, new_name in to_process:
-            # STOP ELLENŐRZÉS A CIKLUS ELEJÉN
             if should_stop():
                 log_message("Leallitasi keres eszlelve - Excel reszleges mentese...")
                 try:
@@ -822,7 +800,6 @@ def main():
                     log_success(f"Sikeres sorok: {success_count}")
                 except Exception as e:
                     log_error("Reszleges mentesi hiba", str(e))
-                # AZONNAL KILÉP, NEM MEGY TOVÁBB A [4/5] MENTÉSRE
                 return 0
 
             log_message("")
@@ -900,7 +877,6 @@ def main():
             human_click(driver, track_btn)
             log_success("Track gomb megnyomva")
 
-            # Dinamikus varakozas - max 8mp, de ha megjelenik a POD link azonnal tovabb
             log_step("Varas", "Tracking eredmenyre varunk (max 8mp)...")
             wait_start = time.time()
             while time.time() - wait_start < 8:
@@ -912,7 +888,6 @@ def main():
             close_policy_popup(driver)
             close_chat_if_present(driver)
 
-            # Van POD link?
             pod_link = None
             used = ""
             for by, sel, desc in [
@@ -929,12 +904,9 @@ def main():
 
             if not pod_link:
                 log_error("Nincs POD link - sor kihagyva, visszanavigalas...")
-                
-                # Sárga színezés a sorra (az első 5 oszlopba)
                 for col in range(1, 6):
                     ws.cell(row=excel_row, column=col).fill = sarga_fill
                 log_success(f"Sor {excel_row} sargara szinezve (nincs POD)")
-                
                 driver.get(ups_url)
                 time.sleep(random.uniform(3, 5))
                 tracking_found = False
@@ -946,7 +918,10 @@ def main():
                             break
                     except: pass
                     time.sleep(0.5)
+                processed += 1
+                update_progress(processed, total)
                 continue
+
             log_success("POD link megtalalhato - folytatjuk")
 
             tracking_window = driver.current_window_handle
@@ -967,7 +942,6 @@ def main():
             pdf_saved = save_pod_pdf(driver, download_folder, new_name, tracking_window)
 
             if pdf_saved:
-                # Csak akkor zöld, ha a PDF tényleg mentve
                 output_path_check = os.path.join(download_folder, f"{new_name}.pdf")
                 if os.path.exists(output_path_check) and os.path.getsize(output_path_check) > 0:
                     for col in range(1, 6):
@@ -984,7 +958,7 @@ def main():
             time.sleep(random.uniform(3, 5))
 
             tracking_found = False
-            for _ in range(30):  # 30 * 0.5 = 15 masodperc
+            for _ in range(30):
                 if should_stop():
                     log_message("Stop jel erkezett visszanavigalas kozben")
                     break
@@ -1005,7 +979,6 @@ def main():
             update_progress(processed, total)
             log_success(f"Feldolgozva: {processed}/{total}")
 
-        # [4] Excel mentés - letöltési mappába
         log_message("")
         log_message("[4/5] Excel mentese...")
         excel_basename = os.path.basename(excel_path)
@@ -1028,7 +1001,6 @@ def main():
     except Exception as e:
         log_error("Varatlan hiba", str(e)); return 1
     finally:
-        # Temp fájl törlése minden esetben
         try:
             if os.path.exists(temp_excel):
                 os.remove(temp_excel)
