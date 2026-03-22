@@ -914,6 +914,36 @@ if __name__ == "__main__":
     Write-Log "Python script futtatasa..."
     Write-Log ""
 
+    # Python keresese
+    $pythonExe = $null
+    $pythonCandidates = @("py", "python", "python3")
+    foreach ($candidate in $pythonCandidates) {
+        try {
+            $found = Get-Command $candidate -ErrorAction SilentlyContinue
+            if ($found) { $pythonExe = $candidate; break }
+        } catch {}
+    }
+    if (-not $pythonExe) {
+        $knownPaths = @(
+            "C:\Program Files\Python313\python.exe",
+            "C:\Program Files\Python312\python.exe",
+            "C:\Program Files\Python311\python.exe",
+            "C:\Program Files\Python310\python.exe",
+            "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe",
+            "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"
+        )
+        foreach ($p in $knownPaths) {
+            if (Test-Path $p) { $pythonExe = $p; break }
+        }
+    }
+    if (-not $pythonExe) {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Python nem talalhato a gepen!`nTelepitsd a Python-t es probald ujra.",
+            "Python hiányzik", "OK", "Error")
+        $startButton.Enabled = $true; $stopButton.Enabled = $false; return
+    }
+    Write-Log "Python: $pythonExe"
+
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $pythonExe
     $psi.Arguments = "`"$script:tempPython`" `"$url`" `"$excelPath`" `"$downloadFolder`""
