@@ -276,17 +276,40 @@ $checkList.Enabled = $false
 $checkList.BackColor = "White"
 $form.Controls.Add($checkList)
 
+# --- Kezdő sor beállítás ---
+$startRowLabel = New-Object System.Windows.Forms.Label
+$startRowLabel.Location = New-Object System.Drawing.Point(10, 425)
+$startRowLabel.Size = New-Object System.Drawing.Size(120, 25)
+$startRowLabel.Text = "Kezdő sor:"
+$startRowLabel.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
+$form.Controls.Add($startRowLabel)
+
+$startRowBox = New-Object System.Windows.Forms.TextBox
+$startRowBox.Location = New-Object System.Drawing.Point(140, 425)
+$startRowBox.Size = New-Object System.Drawing.Size(80, 25)
+$startRowBox.Text = "2"
+$startRowBox.Font = New-Object System.Drawing.Font("Arial", 10)
+$form.Controls.Add($startRowBox)
+
+$startRowInfo = New-Object System.Windows.Forms.Label
+$startRowInfo.Location = New-Object System.Drawing.Point(230, 428)
+$startRowInfo.Size = New-Object System.Drawing.Size(350, 20)
+$startRowInfo.Text = "(alap: 2 = első adatsor, az 1. sor az oszlopnevek)"
+$startRowInfo.Font = New-Object System.Drawing.Font("Arial", 8)
+$startRowInfo.ForeColor = "Gray"
+$form.Controls.Add($startRowInfo)
+
 # --- Napló ---
 $logLabel = New-Object System.Windows.Forms.Label
-$logLabel.Location = New-Object System.Drawing.Point(10, 428)
+$logLabel.Location = New-Object System.Drawing.Point(10, 458)
 $logLabel.Size = New-Object System.Drawing.Size(600, 20)
 $logLabel.Text = "Folyamat napló:"
 $logLabel.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
 $form.Controls.Add($logLabel)
 
 $logBox = New-Object System.Windows.Forms.TextBox
-$logBox.Location = New-Object System.Drawing.Point(10, 448)
-$logBox.Size = New-Object System.Drawing.Size(610, 200)
+$logBox.Location = New-Object System.Drawing.Point(10, 478)
+$logBox.Size = New-Object System.Drawing.Size(610, 170)
 $logBox.Multiline = $true
 $logBox.ScrollBars = "Vertical"
 $logBox.ReadOnly = $true
@@ -412,6 +435,11 @@ $startButton.Add_Click({
     $url            = $urlBox.Text.Trim()
     $excelPath      = $excelBox.Text.Trim()
     $downloadFolder = $folderBox.Text.Trim()
+    $startRow       = $startRowBox.Text.Trim()
+
+    # Kezdő sor ellenőrzése
+    if ($startRow -eq "") { $startRow = "2" }
+    if (-not ($startRow -match "^\d+$")) { $startRow = "2" }
 
     if (-not $url) {
         [System.Windows.Forms.MessageBox]::Show("Add meg az UPS URL-t!", "Hiba", "OK", "Error")
@@ -440,6 +468,7 @@ $startButton.Add_Click({
     Write-Log "Dátum: $(Get-Date)"
     Write-Log "Excel: $excelPath"
     Write-Log "Letöltési mappa: $downloadFolder"
+    Write-Log "Kezdő sor: $startRow"
     Write-Log ""
 
     $pythonScript = @'
@@ -617,12 +646,13 @@ def save_pod_pdf(driver, download_folder, new_name, tracking_window):
                 driver.switch_to.window(driver.window_handles[0])
 
 def main():
-    if len(sys.argv) < 4:
-        log_error("Hianyzo argumentumok"); return 1
+    if len(sys.argv) < 5:
+        log_error("Hianyzo argumentumok (kell: url, excel, mappa, kezdosor)"); return 1
 
     ups_url         = sys.argv[1]
     excel_path      = sys.argv[2]
     download_folder = sys.argv[3]
+    start_row       = int(sys.argv[4])
 
     log_message("="*60)
     log_message("UPS POD - debuggerAddress mod")
@@ -650,10 +680,18 @@ def main():
 
     to_process = []
     for idx, row in df.iterrows():
-        excel_row = idx + 2
+        excel_row = idx + 2  # Excel sor száma (1. sor az oszlopnevek)
+        
+        # 1. Kezdő sor ellenőrzés (először!)
+        if excel_row < start_row:
+            log_step("Szures", f"Sor {excel_row} kihagyva (kezdo sor: {start_row})")
+            continue
+        
+        # 2. Zöld sor ellenőrzés
         if is_row_processed(ws, excel_row):
             log_step("Szures", f"Sor {excel_row} mar zold, kihagyva")
             continue
+            
         tracking = str(row['Tracking Number']).strip() if pd.notna(row['Tracking Number']) else ''
         new_name = str(row['összefűz']).strip() if pd.notna(row['összefűz']) else ''
         if not tracking or not new_name:
@@ -955,7 +993,7 @@ if __name__ == "__main__":
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $pythonExe
-    $psi.Arguments = "`"$tempPython`" `"$url`" `"$excelPath`" `"$downloadFolder`""
+    $psi.Arguments = "`"$tempPython`" `"$url`" `"$excelPath`" `"$downloadFolder`" `"$startRow`""
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
