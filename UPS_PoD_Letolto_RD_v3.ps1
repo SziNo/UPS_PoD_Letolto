@@ -1006,8 +1006,8 @@ if __name__ == "__main__":
         $exitCode = $script:process.ExitCode
         $script:pythonProcess = $null
         Remove-Item $script:tempPython -Force -ErrorAction SilentlyContinue
+        Clear-AllChromeProcesses -Silent -IncludeDriver
         $form.Invoke([Action]{
-            Clear-AllChromeProcesses -IncludeDriver
             Write-Log ""
             Write-Log "="*50
             if ($exitCode -eq 0) {
