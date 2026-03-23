@@ -9,6 +9,48 @@ Add-Type -AssemblyName System.Drawing
 $env:HTTP_PROXY = "http://cloudproxy.dhl.com:10123"
 $env:HTTPS_PROXY = "http://cloudproxy.dhl.com:10123"
 $env:NO_PROXY = "127.0.0.1,localhost"
+
+function Write-Log {
+    param($Message)
+    $logBox.AppendText($Message + "`r`n")
+    $logBox.ScrollToCaret()
+    $logBox.Refresh()
+}
+
+function Clear-AllChromeProcesses {
+    param([switch]$Silent, [switch]$IncludeDriver)
+    
+    $log = { param($msg) if (-not $Silent) { try { Write-Log $msg } catch {} } }
+    
+    & $log "Chrome folyamatok takaritasa..."
+    
+    # Minden Chrome-kapcsolodo folyamat leolese
+    $chromeNames = @("chrome", "GoogleCrashHandler", "GoogleCrashHandler64", "software_reporter_tool")
+    if ($IncludeDriver) { $chromeNames += "chromedriver" }
+    
+    foreach ($procName in $chromeNames) {
+        $procs = Get-Process -Name $procName -ErrorAction SilentlyContinue
+        if ($procs) {
+            $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+            & $log "  $procName leallitva"
+        }
+    }
+    
+    Start-Sleep -Seconds 1
+    $portCheck = Test-NetConnection -ComputerName 127.0.0.1 -Port 9222 -WarningAction SilentlyContinue -InformationLevel Quiet
+    if (-not $portCheck) {
+        & $log "  Port 9222 szabad"
+    } else {
+        try {
+            $pid9222 = (netstat -ano | Select-String ":9222" | Select-String "LISTENING") -replace ".*\s+(\d+)$","$1"
+            if ($pid9222) {
+                Stop-Process -Id ([int]$pid9222.Trim()) -Force -ErrorAction SilentlyContinue
+                & $log "  Port 9222 folyamat leallitva"
+            }
+        } catch {}
+    }
+}
+
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "UPS PoD Letöltő"
 $form.Size = New-Object System.Drawing.Size(650, 780)
@@ -54,7 +96,7 @@ $launchChromeButton.Text = "PoD Chrome indítása"
 $launchChromeButton.BackColor = "SteelBlue"
 $launchChromeButton.ForeColor = "White"
 $launchChromeButton.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
-$launchChromeButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1] Kéz kurzor
+$launchChromeButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $launchChromeButton.Add_Click({
     $portCheck = Test-NetConnection -ComputerName 127.0.0.1 -Port 9222 -WarningAction SilentlyContinue -InformationLevel Quiet
     if ($portCheck) {
@@ -222,7 +264,7 @@ $excelButton.Size = New-Object System.Drawing.Size(90, 25)
 $excelButton.Text = "Tallózás"
 $excelButton.Font = New-Object System.Drawing.Font("Arial", 9)
 $excelButton.BackColor = "LightGray"
-$excelButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1]
+$excelButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $excelButton.Add_Click({
     $fb = New-Object System.Windows.Forms.OpenFileDialog
     $fb.Filter = "Excel files (*.xlsx;*.xls)|*.xlsx;*.xls"
@@ -251,7 +293,7 @@ $folderButton.Size = New-Object System.Drawing.Size(90, 25)
 $folderButton.Text = "Tallózás"
 $folderButton.Font = New-Object System.Drawing.Font("Arial", 9)
 $folderButton.BackColor = "LightGray"
-$folderButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1]
+$folderButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $folderButton.Add_Click({
     $fb = New-Object System.Windows.Forms.FolderBrowserDialog
     $fb.ShowNewFolderButton = $true
@@ -312,7 +354,7 @@ $form.Controls.Add($logLabel)
 
 $logBox = New-Object System.Windows.Forms.TextBox
 $logBox.Location = New-Object System.Drawing.Point(10, 478)
-$logBox.Size = New-Object System.Drawing.Size(610, 200)
+$logBox.Size = New-Object System.Drawing.Size(610, 170)
 $logBox.Multiline = $true
 $logBox.ScrollBars = "Vertical"
 $logBox.ReadOnly = $true
@@ -338,7 +380,7 @@ $stopButton.Text = "STOP"
 $stopButton.BackColor = "Orange"
 $stopButton.ForeColor = "White"
 $stopButton.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
-$stopButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1]
+$stopButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $stopButton.Enabled = $false
 $stopButton.Add_Click({
     $script:stopRequested = $true
@@ -367,11 +409,11 @@ $form.Controls.Add($stopButton)
 $startButton = New-Object System.Windows.Forms.Button
 $startButton.Location = New-Object System.Drawing.Point(420, 658)
 $startButton.Size = New-Object System.Drawing.Size(100, 25)
-$startButton.Text = "Indítás"  # [2] Rövidebb felirat
+$startButton.Text = "Indítás"
 $startButton.BackColor = "ForestGreen"
 $startButton.ForeColor = "White"
 $startButton.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
-$startButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1]
+$startButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $form.Controls.Add($startButton)
 
 $exitButton = New-Object System.Windows.Forms.Button
@@ -381,7 +423,7 @@ $exitButton.Text = "Kilépés"
 $exitButton.BackColor = "DarkRed"
 $exitButton.ForeColor = "White"
 $exitButton.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
-$exitButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1]
+$exitButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $exitButton.Add_Click({
     if ($script:pythonProcess -and !$script:pythonProcess.HasExited) {
         Set-Content -Path (Join-Path $env:TEMP "ups_pod_stop.txt") -Value "stop" -Force
@@ -391,41 +433,6 @@ $exitButton.Add_Click({
     $form.Close()
 })
 $form.Controls.Add($exitButton)
-
-function Write-Log {
-    param($Message)
-    $logBox.AppendText($Message + "`r`n")
-    $logBox.ScrollToCaret()
-    $logBox.Refresh()
-}
-
-function Clear-AllChromeProcesses {
-    param([switch]$Silent, [switch]$IncludeDriver)
-    $log = { param($msg) if (-not $Silent) { try { Write-Log $msg } catch {} } }
-    & $log "Chrome folyamatok takaritasa..."
-    $chromeNames = @("chrome", "GoogleCrashHandler", "GoogleCrashHandler64", "software_reporter_tool")
-    if ($IncludeDriver) { $chromeNames += "chromedriver" }
-    foreach ($procName in $chromeNames) {
-        $procs = Get-Process -Name $procName -ErrorAction SilentlyContinue
-        if ($procs) {
-            $procs | Stop-Process -Force -ErrorAction SilentlyContinue
-            & $log "  $procName leallitva"
-        }
-    }
-    Start-Sleep -Seconds 1
-    $portCheck = Test-NetConnection -ComputerName 127.0.0.1 -Port 9222 -WarningAction SilentlyContinue -InformationLevel Quiet
-    if (-not $portCheck) {
-        & $log "  Port 9222 szabad"
-    } else {
-        try {
-            $pid9222 = (netstat -ano | Select-String ":9222" | Select-String "LISTENING") -replace ".*\s+(\d+)$","$1"
-            if ($pid9222) {
-                Stop-Process -Id ([int]$pid9222.Trim()) -Force -ErrorAction SilentlyContinue
-                & $log "  Port 9222 folyamat leallitva"
-            }
-        } catch {}
-    }
-}
 
 # =====================================================
 # LETÖLTÉS INDÍTÁSA
@@ -472,6 +479,7 @@ $startButton.Add_Click({
     Write-Log "Dátum: $(Get-Date)"
     Write-Log "Excel: $excelPath"
     Write-Log "Letöltési mappa: $downloadFolder"
+    Write-Log "Kezdő sor: $startRow"
     Write-Log ""
 
     $pythonScript = @'
@@ -1097,6 +1105,8 @@ if __name__ == "__main__":
         Unregister-Event -SourceIdentifier $errorEvent.Name -Force -ErrorAction SilentlyContinue
         Remove-Item $tempPython -Force -ErrorAction SilentlyContinue
 
+        Clear-AllChromeProcesses -IncludeDriver
+
         $form.Invoke([Action]{
             Write-Log ""
             Write-Log "="*50
@@ -1117,7 +1127,6 @@ if __name__ == "__main__":
             $progressBar.Value = 0
             $startButton.Enabled = $true
             $stopButton.Enabled = $false
-            Clear-AllChromeProcesses -IncludeDriver
         })
     }
 
