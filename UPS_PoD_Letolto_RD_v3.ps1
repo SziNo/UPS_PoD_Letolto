@@ -141,6 +141,9 @@ $cleanProfileButton.Add_Click({
         $chromeStatus.ForeColor = "Gray"
     }
     Remove-Item (Join-Path $env:TEMP "ups_pod_stop.txt") -Force -ErrorAction SilentlyContinue
+    if ($script:exitedEvent) {
+        Unregister-Event -SourceIdentifier $script:exitedEvent.Name -Force -ErrorAction SilentlyContinue
+    }
 })
 $form.Controls.Add($cleanProfileButton)
 
@@ -355,6 +358,9 @@ $stopButton.Add_Click({
     $progressBar.Value = 0
     $startButton.Enabled = $true
     $stopButton.Enabled = $false
+    if ($script:exitedEvent) {
+        Unregister-Event -SourceIdentifier $script:exitedEvent.Name -Force -ErrorAction SilentlyContinue
+    }
 })
 $form.Controls.Add($stopButton)
 
@@ -436,8 +442,6 @@ $startButton.Add_Click({
     $excelPath      = $excelBox.Text.Trim()
     $downloadFolder = $folderBox.Text.Trim()
     $startRow       = $startRowBox.Text.Trim()
-
-    # Kezdő sor ellenőrzése
     if ($startRow -eq "") { $startRow = "2" }
     if (-not ($startRow -match "^\d+$")) { $startRow = "2" }
 
@@ -468,7 +472,6 @@ $startButton.Add_Click({
     Write-Log "Dátum: $(Get-Date)"
     Write-Log "Excel: $excelPath"
     Write-Log "Letöltési mappa: $downloadFolder"
-    Write-Log "Kezdő sor: $startRow"
     Write-Log ""
 
     $pythonScript = @'
@@ -478,6 +481,9 @@ import time
 import os
 import random
 import base64
+import shutil
+import tempfile
+from datetime import datetime
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -492,6 +498,7 @@ from openpyxl.styles import PatternFill
 
 STOP_FILE = os.path.join(os.environ['TEMP'], 'ups_pod_stop.txt')
 GREEN_COLOR = '92D050'
+YELLOW_COLOR = 'FFFF00'
 
 def should_stop():
     return os.path.exists(STOP_FILE)
@@ -586,7 +593,6 @@ def save_pod_pdf(driver, download_folder, new_name, tracking_window):
                 print_window = new_wins.pop()
                 driver.switch_to.window(print_window)
                 log_success(f"Print preview ablakra valtva, URL: {driver.current_url}")
-                # Dinamikus varakozas - max 10mp, de ha betoltott azonnal tovabb
                 wait_start = time.time()
                 while time.time() - wait_start < 10:
                     state = driver.execute_script("return document.readyState")
@@ -659,48 +665,86 @@ def main():
     log_message("="*60)
 
     log_message("[1/5] Excel beolvasasa...")
+
+    if not os.path.exists(excel_path):
+        log_error("Excel fajl nem talalhato!", excel_path)
+        return 1
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    excel_name, excel_ext = os.path.splitext(os.path.basename(excel_path))
+    temp_excel = os.path.join(tempfile.gettempdir(), f"ups_pod_{excel_name}_{timestamp}{excel_ext}")
+
+    copy_ok = False
+    for attempt in range(3):
+        try:
+            shutil.copy2(excel_path, temp_excel)
+            log_success(f"Excel masolva temp-be: {temp_excel}")
+            copy_ok = True
+            break
+        except Exception as e:
+            if attempt < 2:
+                log_message(f"Excel masolasi kiserlat {attempt+1} sikertelen, ujra...")
+                time.sleep(2)
+            else:
+                log_error("Excel fajl masolasi hiba - lehet zarolva (OneDrive?)", str(e))
+                log_error("Megoldas: helyezd a fajlt C:\temp mappaba, vagy zard be/nevezd at")
+                return 1
+
     try:
-        df = pd.read_excel(excel_path, sheet_name=0)
+        df = pd.read_excel(temp_excel, sheet_name=0)
         log_success(f"Excel beolvasva - {len(df)} sor")
     except Exception as e:
-        log_error("Excel olvasasi hiba", str(e)); return 1
+        log_error("Excel olvasasi hiba", str(e))
+        try: os.remove(temp_excel)
+        except: pass
+        return 1
 
     required = ['Tracking Number', 'összefűz']
     missing = [c for c in required if c not in df.columns]
     if missing:
-        log_error("Hianyzó oszlopok", str(missing)); return 1
+        log_error("Hianyzó oszlopok", str(missing))
+        try: os.remove(temp_excel)
+        except: pass
+        return 1
 
     try:
-        wb = load_workbook(excel_path)
+        wb = load_workbook(temp_excel)
         ws = wb.active
     except Exception as e:
-        log_error("Excel megnyitas hiba - lehet hogy a fajl zarolva van!", str(e))
+        log_error("Excel megnyitasi hiba - lehet hogy a fajl zarolva van!", str(e))
         log_error("Megoldas: zard be az Excelt ha nyitva van, majd probald ujra")
+        try: os.remove(temp_excel)
+        except: pass
         return 1
 
     to_process = []
+    processed_count = 0
+    skipped_count = 0
     for idx, row in df.iterrows():
-        excel_row = idx + 2  # Excel sor száma (1. sor az oszlopnevek)
-        
-        # 1. Kezdő sor ellenőrzés (először!)
+        excel_row = idx + 2
         if excel_row < start_row:
-            log_step("Szures", f"Sor {excel_row} kihagyva (kezdo sor: {start_row})")
+            skipped_count += 1
             continue
-        
-        # 2. Zöld sor ellenőrzés
         if is_row_processed(ws, excel_row):
-            log_step("Szures", f"Sor {excel_row} mar zold, kihagyva")
+            processed_count += 1
             continue
-            
         tracking = str(row['Tracking Number']).strip() if pd.notna(row['Tracking Number']) else ''
         new_name = str(row['összefűz']).strip() if pd.notna(row['összefűz']) else ''
         if not tracking or not new_name:
             continue
         to_process.append((idx, excel_row, tracking, new_name))
 
+    if skipped_count > 0:
+        log_step("Szures", f"{skipped_count} sor kihagyva (kezdo sor: {start_row})")
+    if processed_count > 0:
+        log_step("Szures", f"{processed_count} sor mar feldolgozva (zold), kihagyva")
+
     total = len(to_process)
     if total == 0:
-        log_message("Nincs feldolgozando sor."); return 0
+        log_message("Nincs feldolgozando sor.")
+        try: os.remove(temp_excel)
+        except: pass
+        return 0
     log_success(f"Feldolgozando sorok: {total}")
     update_progress(0, total)
 
@@ -713,14 +757,14 @@ def main():
         log_success(f"Csatlakozva! Jelenlegi URL: {driver.current_url}")
     except Exception as e:
         log_error("Csatlakozasi hiba - fut-e a POD Chrome?", str(e))
+        try: os.remove(temp_excel)
+        except: pass
         return 1
 
     try:
-        # Bezarjuk az osszes meglevo tabot, csak egy maradjon
         all_handles = driver.window_handles
         if len(all_handles) > 1:
             log_step("Init", f"{len(all_handles)} tab talalhato, bezarjuk a feleslegeseket...")
-            # Az elso tabon maradunk, a tobbi bezarasra kerul
             driver.switch_to.window(all_handles[0])
             for handle in all_handles[1:]:
                 driver.switch_to.window(handle)
@@ -736,8 +780,8 @@ def main():
         processed     = 0
         success_count = 0
         zold_fill = PatternFill(start_color=GREEN_COLOR, end_color=GREEN_COLOR, fill_type='solid')
+        sarga_fill = PatternFill(start_color=YELLOW_COLOR, end_color=YELLOW_COLOR, fill_type='solid')
 
-        partial_saved = False
         for idx, excel_row, tracking, new_name in to_process:
             if should_stop():
                 log_message("Leallitasi keres eszlelve - Excel reszleges mentese...")
@@ -748,10 +792,9 @@ def main():
                     wb.save(reszleges_path)
                     log_success(f"Reszleges Excel mentve: {reszleges_path}")
                     log_success(f"Sikeres sorok: {success_count}")
-                    partial_saved = True
                 except Exception as e:
                     log_error("Reszleges mentesi hiba", str(e))
-                break
+                return 0
 
             log_message("")
             log_message("-"*50)
@@ -828,7 +871,6 @@ def main():
             human_click(driver, track_btn)
             log_success("Track gomb megnyomva")
 
-            # Dinamikus varakozas - max 8mp, de ha megjelenik a POD link azonnal tovabb
             log_step("Varas", "Tracking eredmenyre varunk (max 8mp)...")
             wait_start = time.time()
             while time.time() - wait_start < 8:
@@ -840,7 +882,6 @@ def main():
             close_policy_popup(driver)
             close_chat_if_present(driver)
 
-            # Van POD link?
             pod_link = None
             used = ""
             for by, sel, desc in [
@@ -857,6 +898,9 @@ def main():
 
             if not pod_link:
                 log_error("Nincs POD link - sor kihagyva, visszanavigalas...")
+                for col in range(1, 6):
+                    ws.cell(row=excel_row, column=col).fill = sarga_fill
+                log_success(f"Sor {excel_row} sargara szinezve (nincs POD)")
                 driver.get(ups_url)
                 time.sleep(random.uniform(3, 5))
                 tracking_found = False
@@ -868,7 +912,10 @@ def main():
                             break
                     except: pass
                     time.sleep(0.5)
+                processed += 1
+                update_progress(processed, total)
                 continue
+
             log_success("POD link megtalalhato - folytatjuk")
 
             tracking_window = driver.current_window_handle
@@ -889,10 +936,14 @@ def main():
             pdf_saved = save_pod_pdf(driver, download_folder, new_name, tracking_window)
 
             if pdf_saved:
-                for col in range(1, 6):
-                    ws.cell(row=excel_row, column=col).fill = zold_fill
-                log_success(f"Sor {excel_row} zoldre szinezve")
-                success_count += 1
+                output_path_check = os.path.join(download_folder, f"{new_name}.pdf")
+                if os.path.exists(output_path_check) and os.path.getsize(output_path_check) > 0:
+                    for col in range(1, 6):
+                        ws.cell(row=excel_row, column=col).fill = zold_fill
+                    log_success(f"Sor {excel_row} zoldre szinezve - PDF ellenorizve OK")
+                    success_count += 1
+                else:
+                    log_error(f"PDF fajl nem talalhato a lemezen, sor NEM szinezve: {new_name}.pdf")
             else:
                 log_error("PDF mentes sikertelen")
 
@@ -901,7 +952,7 @@ def main():
             time.sleep(random.uniform(3, 5))
 
             tracking_found = False
-            for _ in range(30):  # 30 * 0.5 = 15 masodperc
+            for _ in range(30):
                 if should_stop():
                     log_message("Stop jel erkezett visszanavigalas kozben")
                     break
@@ -922,7 +973,6 @@ def main():
             update_progress(processed, total)
             log_success(f"Feldolgozva: {processed}/{total}")
 
-        # [4] Excel mentés - letöltési mappába
         log_message("")
         log_message("[4/5] Excel mentese...")
         excel_basename = os.path.basename(excel_path)
@@ -945,6 +995,12 @@ def main():
     except Exception as e:
         log_error("Varatlan hiba", str(e)); return 1
     finally:
+        try:
+            if os.path.exists(temp_excel):
+                os.remove(temp_excel)
+                log_success(f"Temp fajl torolve: {temp_excel}")
+        except:
+            pass
         sys.stdout.write("LOG: A POD Chrome nyitva maradt.\n")
         sys.stdout.flush()
         if os.path.exists(STOP_FILE):
@@ -954,9 +1010,9 @@ if __name__ == "__main__":
     sys.exit(main())
 '@
 
-    $tempPython = [System.IO.Path]::GetTempFileName() + ".py"
+    $script:tempPython = [System.IO.Path]::GetTempFileName() + ".py"
     $utf8WithBom = New-Object System.Text.UTF8Encoding $true
-    [System.IO.File]::WriteAllText($tempPython, $pythonScript, $utf8WithBom)
+    [System.IO.File]::WriteAllText($script:tempPython, $pythonScript, $utf8WithBom)
 
     Write-Log "Python script futtatasa..."
     Write-Log ""
@@ -993,7 +1049,7 @@ if __name__ == "__main__":
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $pythonExe
-    $psi.Arguments = "`"$tempPython`" `"$url`" `"$excelPath`" `"$downloadFolder`" `"$startRow`""
+    $psi.Arguments = "`"$script:tempPython`" `"$url`" `"$excelPath`" `"$downloadFolder`" `"$startRow`""
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
@@ -1005,7 +1061,7 @@ if __name__ == "__main__":
     $process.StartInfo = $psi
     $script:pythonProcess = $process
 
-    $outputEvent = Register-ObjectEvent -InputObject $process -EventName 'OutputDataReceived' -Action {
+    $script:outputEvent = Register-ObjectEvent -InputObject $process -EventName 'OutputDataReceived' -Action {
         $data = $EventArgs.Data
         if ($data -ne $null) {
             if ($data.StartsWith("LOG: ")) {
@@ -1029,7 +1085,7 @@ if __name__ == "__main__":
         }
     }
 
-    $errorEvent = Register-ObjectEvent -InputObject $process -EventName 'ErrorDataReceived' -Action {
+    $script:errorEvent = Register-ObjectEvent -InputObject $process -EventName 'ErrorDataReceived' -Action {
         $data = $EventArgs.Data
         if ($data -ne $null) {
             $form.Invoke([Action]{
@@ -1042,15 +1098,15 @@ if __name__ == "__main__":
     }
 
     $process.EnableRaisingEvents = $true
-    $exitedEvent = Register-ObjectEvent -InputObject $process -EventName 'Exited' -Action {
+    $script:exitedEvent = Register-ObjectEvent -InputObject $process -EventName 'Exited' -Action {
         $exitCode = $process.ExitCode
         $script:pythonProcess = $null
 
-        Unregister-Event -SourceIdentifier $outputEvent.Name -Force -ErrorAction SilentlyContinue
-        Unregister-Event -SourceIdentifier $errorEvent.Name -Force -ErrorAction SilentlyContinue
-        Remove-Item $tempPython -Force -ErrorAction SilentlyContinue
+        Unregister-Event -SourceIdentifier $script:outputEvent.Name -Force -ErrorAction SilentlyContinue
+        Unregister-Event -SourceIdentifier $script:errorEvent.Name -Force -ErrorAction SilentlyContinue
+        Remove-Item $script:tempPython -Force -ErrorAction SilentlyContinue
 
-        Clear-AllChromeProcesses -IncludeDriver
+        Clear-AllChromeProcesses -Silent -IncludeDriver
 
         $form.Invoke([Action]{
             Write-Log ""
