@@ -10,50 +10,9 @@ $env:HTTP_PROXY = "http://cloudproxy.dhl.com:10123"
 $env:HTTPS_PROXY = "http://cloudproxy.dhl.com:10123"
 $env:NO_PROXY = "127.0.0.1,localhost"
 
-function Write-Log {
-    param($Message)
-    $logBox.AppendText($Message + "`r`n")
-    $logBox.ScrollToCaret()
-    $logBox.Refresh()
-}
-
-function Clear-AllChromeProcesses {
-    param([switch]$Silent, [switch]$IncludeDriver)
-    
-    $log = { param($msg) if (-not $Silent) { try { Write-Log $msg } catch {} } }
-    
-    & $log "Chrome folyamatok takaritasa..."
-    
-    # Minden Chrome-kapcsolodo folyamat leolese
-    $chromeNames = @("chrome", "GoogleCrashHandler", "GoogleCrashHandler64", "software_reporter_tool")
-    if ($IncludeDriver) { $chromeNames += "chromedriver" }
-    
-    foreach ($procName in $chromeNames) {
-        $procs = Get-Process -Name $procName -ErrorAction SilentlyContinue
-        if ($procs) {
-            $procs | Stop-Process -Force -ErrorAction SilentlyContinue
-            & $log "  $procName leallitva"
-        }
-    }
-    
-    Start-Sleep -Seconds 1
-    $portCheck = Test-NetConnection -ComputerName 127.0.0.1 -Port 9222 -WarningAction SilentlyContinue -InformationLevel Quiet
-    if (-not $portCheck) {
-        & $log "  Port 9222 szabad"
-    } else {
-        try {
-            $pid9222 = (netstat -ano | Select-String ":9222" | Select-String "LISTENING") -replace ".*\s+(\d+)$","$1"
-            if ($pid9222) {
-                Stop-Process -Id ([int]$pid9222.Trim()) -Force -ErrorAction SilentlyContinue
-                & $log "  Port 9222 folyamat leallitva"
-            }
-        } catch {}
-    }
-}
-
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "UPS PoD Letöltő"
-$form.Size = New-Object System.Drawing.Size(650, 780)
+$form.Size = New-Object System.Drawing.Size(650, 820)
 $form.StartPosition = "CenterScreen"
 $form.BackColor = "White"
 
@@ -98,7 +57,7 @@ $launchChromeButton.ForeColor = "White"
 $launchChromeButton.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
 $launchChromeButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $launchChromeButton.Add_Click({
-    $portCheck = Test-NetConnection -ComputerName 127.0.0.1 -Port 9222 -WarningAction SilentlyContinue -InformationLevel Quiet
+    $portCheck = Test-NetConnection -ComputerName 127.0.0.1 -Port 9222 -WarningAction SilentlyContinue -InformationLevel Quiet -ErrorAction SilentlyContinue
     if ($portCheck) {
         Write-Log "POD Chrome mar fut a 9222-es porton."
         $chromeStatus.Text = "✓ POD Chrome fut"
@@ -165,8 +124,9 @@ $cleanProfileButton.Add_Click({
         }
         $progressBar.Value = 0
         $startButton.Enabled = $true
+        $stopButton.Enabled = $false
     }
-    Clear-AllChromeProcesses -IncludeDriver
+    Clear-AllChromeProcesses -IncludeDriver -ForceKill
     $profileDir = "$env:TEMP\SeleniumProfile_$([Environment]::UserName)"
     if (Test-Path $profileDir) {
         try {
@@ -183,8 +143,6 @@ $cleanProfileButton.Add_Click({
         $chromeStatus.ForeColor = "Gray"
     }
     Remove-Item (Join-Path $env:TEMP "ups_pod_stop.txt") -Force -ErrorAction SilentlyContinue
-    
-    # ExitedEvent deregisztrálása
     if ($script:exitedEvent) {
         Unregister-Event -SourceIdentifier $script:exitedEvent.Name -Force -ErrorAction SilentlyContinue
     }
@@ -201,7 +159,7 @@ $cleanChromeButton.ForeColor = "White"
 $cleanChromeButton.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
 $cleanChromeButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $cleanChromeButton.Add_Click({
-    Clear-AllChromeProcesses -IncludeDriver
+    Clear-AllChromeProcesses -IncludeDriver -ForceKill
     $chromeStatus.Text = "Chrome tisztitva - inditsd ujra"
     $chromeStatus.ForeColor = "DarkRed"
 })
@@ -356,7 +314,7 @@ $form.Controls.Add($logLabel)
 
 $logBox = New-Object System.Windows.Forms.TextBox
 $logBox.Location = New-Object System.Drawing.Point(10, 478)
-$logBox.Size = New-Object System.Drawing.Size(610, 170)
+$logBox.Size = New-Object System.Drawing.Size(610, 200)
 $logBox.Multiline = $true
 $logBox.ScrollBars = "Vertical"
 $logBox.ReadOnly = $true
@@ -367,16 +325,20 @@ $form.Controls.Add($logBox)
 
 # --- Progress bar ---
 $progressBar = New-Object System.Windows.Forms.ProgressBar
-$progressBar.Location = New-Object System.Drawing.Point(10, 658)
+$progressBar.Location = New-Object System.Drawing.Point(10, 688)
 $progressBar.Size = New-Object System.Drawing.Size(310, 25)
 $form.Controls.Add($progressBar)
 
 # --- Gombok ---
 $script:stopRequested = $false
 $script:pythonProcess = $null
+$script:tempPython = $null
+$script:outputEvent = $null
+$script:errorEvent = $null
+$script:exitedEvent = $null
 
 $stopButton = New-Object System.Windows.Forms.Button
-$stopButton.Location = New-Object System.Drawing.Point(330, 658)
+$stopButton.Location = New-Object System.Drawing.Point(330, 688)
 $stopButton.Size = New-Object System.Drawing.Size(80, 25)
 $stopButton.Text = "STOP"
 $stopButton.BackColor = "Orange"
@@ -397,13 +359,11 @@ $stopButton.Add_Click({
     if ($script:pythonProcess -and !$script:pythonProcess.HasExited) {
         $script:pythonProcess.Kill()
     }
-    Clear-AllChromeProcesses -IncludeDriver
+    Clear-AllChromeProcesses -IncludeDriver -ForceKill
     Write-Log "Megallitva."
     $progressBar.Value = 0
     $startButton.Enabled = $true
     $stopButton.Enabled = $false
-    
-    # ExitedEvent deregisztrálása
     if ($script:exitedEvent) {
         Unregister-Event -SourceIdentifier $script:exitedEvent.Name -Force -ErrorAction SilentlyContinue
     }
@@ -411,7 +371,7 @@ $stopButton.Add_Click({
 $form.Controls.Add($stopButton)
 
 $startButton = New-Object System.Windows.Forms.Button
-$startButton.Location = New-Object System.Drawing.Point(420, 658)
+$startButton.Location = New-Object System.Drawing.Point(420, 688)
 $startButton.Size = New-Object System.Drawing.Size(100, 25)
 $startButton.Text = "Indítás"
 $startButton.BackColor = "ForestGreen"
@@ -421,7 +381,7 @@ $startButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $form.Controls.Add($startButton)
 
 $exitButton = New-Object System.Windows.Forms.Button
-$exitButton.Location = New-Object System.Drawing.Point(530, 658)
+$exitButton.Location = New-Object System.Drawing.Point(530, 688)
 $exitButton.Size = New-Object System.Drawing.Size(90, 25)
 $exitButton.Text = "Kilépés"
 $exitButton.BackColor = "DarkRed"
@@ -434,10 +394,75 @@ $exitButton.Add_Click({
         Start-Sleep -Seconds 2
         if (!$script:pythonProcess.HasExited) { $script:pythonProcess.Kill() }
     }
-    Clear-AllChromeProcesses -IncludeDriver
+    Clear-AllChromeProcesses -Silent -IncludeDriver -ForceKill
     $form.Close()
 })
 $form.Controls.Add($exitButton)
+
+function Write-Log {
+    param($Message)
+    if ($logBox -and $logBox -is [System.Windows.Forms.TextBox]) {
+        $logBox.Invoke([Action]{
+            $logBox.AppendText($Message + "`r`n")
+            $logBox.ScrollToCaret()
+            $logBox.Refresh()
+        })
+    }
+}
+
+function Clear-AllChromeProcesses {
+    param([switch]$Silent, [switch]$IncludeDriver, [switch]$ForceKill)
+    
+    $logMsg = { param($msg) if (-not $Silent) { Write-Log $msg } }
+    
+    & $logMsg "Chrome folyamatok takaritasa..."
+    
+    # Várj egy kicsit
+    Start-Sleep -Seconds 1
+    
+    $chromeNames = @("chrome", "GoogleCrashHandler", "GoogleCrashHandler64", "software_reporter_tool")
+    if ($IncludeDriver) { $chromeNames += "chromedriver" }
+    
+    foreach ($procName in $chromeNames) {
+        $procs = Get-Process -Name $procName -ErrorAction SilentlyContinue
+        if ($procs) {
+            if ($ForceKill) {
+                $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+                & $logMsg "  $procName leallitva (force)"
+            } else {
+                foreach ($proc in $procs) {
+                    try { $proc.CloseMainWindow() } catch { try { $proc.Kill() } catch {} }
+                }
+                & $logMsg "  $procName leallitva"
+            }
+        }
+    }
+    
+    Start-Sleep -Seconds 1
+    
+    # Port 9222 felszabadítása - csak ha chromedriver
+    try {
+        $connections = netstat -ano 2>$null | Select-String ":9222" | Select-String "LISTENING"
+        foreach ($conn in $connections) {
+            $pid = ($conn -split '\s+')[-1]
+            if ($pid -match '^\d+$') {
+                $proc = Get-Process -Id ([int]$pid) -ErrorAction SilentlyContinue
+                if ($proc -and $proc.ProcessName -eq "chromedriver") {
+                    Stop-Process -Id ([int]$pid) -Force -ErrorAction SilentlyContinue
+                    & $logMsg "  Port 9222 chromedriver leallitva"
+                } elseif (-not $ForceKill) {
+                    & $logMsg "  Port 9222 mas folyamat hasznalja (${proc.ProcessName}), megtartva"
+                }
+            }
+        }
+    } catch {}
+}
+
+# =====================================================
+# JAVÍTOTT CLOSE_CHAT_IF_PRESENT - TÖBB SELECTORRAL
+# =====================================================
+# A Python scriptben a close_chat_if_present függvény javított változata
+# (ezt a Python script-be kell beilleszteni)
 
 # =====================================================
 # LETÖLTÉS INDÍTÁSA
@@ -454,30 +479,37 @@ $startButton.Add_Click({
     $excelPath      = $excelBox.Text.Trim()
     $downloadFolder = $folderBox.Text.Trim()
     $startRow       = $startRowBox.Text.Trim()
-
-    # Kezdő sor ellenőrzése
     if ($startRow -eq "") { $startRow = "2" }
     if (-not ($startRow -match "^\d+$")) { $startRow = "2" }
 
     if (-not $url) {
         [System.Windows.Forms.MessageBox]::Show("Add meg az UPS URL-t!", "Hiba", "OK", "Error")
-        $startButton.Enabled = $true; $stopButton.Enabled = $false; return
+        $startButton.Enabled = $true; $stopButton.Enabled = $false
+        return
     }
     if (-not $excelPath -or -not (Test-Path $excelPath)) {
         [System.Windows.Forms.MessageBox]::Show("Érvényes Excel fájlt kell kiválasztani!", "Hiba", "OK", "Error")
-        $startButton.Enabled = $true; $stopButton.Enabled = $false; return
+        $startButton.Enabled = $true; $stopButton.Enabled = $false
+        return
     }
     if (-not $downloadFolder -or -not (Test-Path $downloadFolder)) {
         [System.Windows.Forms.MessageBox]::Show("Érvényes letöltési mappát kell kiválasztani!", "Hiba", "OK", "Error")
-        $startButton.Enabled = $true; $stopButton.Enabled = $false; return
+        $startButton.Enabled = $true; $stopButton.Enabled = $false
+        return
     }
 
-    $portCheck = Test-NetConnection -ComputerName 127.0.0.1 -Port 9222 -WarningAction SilentlyContinue -InformationLevel Quiet
-    if (-not $portCheck) {
-        [System.Windows.Forms.MessageBox]::Show(
-            "A POD Chrome nem fut!`n`nElőször kattints a 'POD Chrome indítása' gombra és jelentkezz be az UPS-be.",
-            "POD Chrome nem fut", "OK", "Warning")
-        $startButton.Enabled = $true; $stopButton.Enabled = $false; return
+    try {
+        $portCheck = Test-NetConnection -ComputerName 127.0.0.1 -Port 9222 -WarningAction SilentlyContinue -InformationLevel Quiet -ErrorAction SilentlyContinue
+        if (-not $portCheck) {
+            [System.Windows.Forms.MessageBox]::Show(
+                "A POD Chrome nem fut!`n`nElőször kattints a 'POD Chrome indítása' gombra és jelentkezz be az UPS-be.",
+                "POD Chrome nem fut", "OK", "Warning")
+            $startButton.Enabled = $true; $stopButton.Enabled = $false
+            return
+        }
+    } catch {
+        $startButton.Enabled = $true; $stopButton.Enabled = $false
+        return
     }
 
     Write-Log "==========================================="
@@ -486,9 +518,30 @@ $startButton.Add_Click({
     Write-Log "Dátum: $(Get-Date)"
     Write-Log "Excel: $excelPath"
     Write-Log "Letöltési mappa: $downloadFolder"
-    Write-Log "Kezdő sor: $startRow"
     Write-Log ""
 
+    # Excel másolása temp mappába (OneDrive probléma megoldása)
+    $tempExcel = $null
+    try {
+        Write-Log "Excel fájl előkészítése..."
+        $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+        $excelName = [System.IO.Path]::GetFileNameWithoutExtension($excelPath)
+        $excelExt = [System.IO.Path]::GetExtension($excelPath)
+        $tempExcel = Join-Path $env:TEMP "ups_pod_${excelName}_${timestamp}${excelExt}"
+        
+        Copy-Item -Path $excelPath -Destination $tempExcel -Force -ErrorAction Stop
+        Write-Log "Excel másolat kész: $tempExcel"
+    } catch {
+        Write-Log "HIBA: Nem sikerült az Excel fájlt előkészíteni: $_"
+        [System.Windows.Forms.MessageBox]::Show(
+            "Nem sikerült az Excel fájlt másolni a temp mappába!`n`n" +
+            "Próbáld meg bezárni az Excel fájlt, majd újra!",
+            "Excel hozzáférési hiba", "OK", "Error")
+        $startButton.Enabled = $true; $stopButton.Enabled = $false
+        return
+    }
+
+    # Python script - JAVÍTOTT close_chat_if_present függvénnyel
     $pythonScript = @'
 import sys
 import pandas as pd
@@ -513,22 +566,32 @@ from openpyxl.styles import PatternFill
 
 STOP_FILE = os.path.join(os.environ['TEMP'], 'ups_pod_stop.txt')
 GREEN_COLOR = '92D050'
+YELLOW_COLOR = 'FFFF00'
 
 def should_stop():
     return os.path.exists(STOP_FILE)
 
 def log_message(msg):
-    print(f"LOG: {msg}"); sys.stdout.flush()
+    print(f"LOG: {msg}")
+    sys.stdout.flush()
+
 def log_error(msg, details=""):
     print(f"LOG: [HIBA] {msg}")
-    if details: print(f"LOG:   {details}")
+    if details:
+        print(f"LOG:   {details}")
     sys.stdout.flush()
+
 def log_success(msg):
-    print(f"LOG: [OK] {msg}"); sys.stdout.flush()
+    print(f"LOG: [OK] {msg}")
+    sys.stdout.flush()
+
 def log_step(step, msg):
-    print(f"LOG:   [{step}] {msg}"); sys.stdout.flush()
+    print(f"LOG:   [{step}] {msg}")
+    sys.stdout.flush()
+
 def update_progress(current, total):
-    print(f"PROGRESS: {current},{total}"); sys.stdout.flush()
+    print(f"PROGRESS: {current},{total}")
+    sys.stdout.flush()
 
 def human_click(driver, element):
     actions = ActionChains(driver)
@@ -549,21 +612,68 @@ def close_policy_popup(driver):
         pass
 
 def close_chat_if_present(driver):
+    """UPS chat ablak bezárása - javított verzió több selectorral"""
     try:
-        if not driver.find_elements(By.CSS_SELECTOR, "div.WACBotContainer"):
+        # Ellenőrizzük, hogy a chat ablak jelen van-e
+        chat_container = driver.find_elements(By.CSS_SELECTOR, "div.WACBotContainer")
+        if not chat_container:
+            log_step("Chat", "Chat ablak nem található")
             return
-        btn = WebDriverWait(driver, 3).until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.WACHeader__CloseAndRestartButton")))
-        human_click(driver, btn)
-        time.sleep(1)
-        try:
-            yes = WebDriverWait(driver, 3).until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.WACConfirmModal__YesButton")))
-            human_click(driver, yes)
-        except:
-            pass
-        log_success("Chat bezarva")
-        time.sleep(1)
-    except:
-        pass
+        
+        log_step("Chat", "Chat ablak megtalálva, bezárás...")
+        
+        # Többféle selector kipróbálása a bezáró gombhoz
+        selectors = [
+            "button.WACHeader__CloseAndRestartButton",
+            "[aria-label='End chat and close']",
+            ".WACHeader__CloseAndRestartButton",
+            "button[aria-label='End chat and close']",
+            "button.WACHeader__CloseButton"  # Ez a minimalizáló, de ha nincs más...
+        ]
+        
+        close_btn = None
+        for selector in selectors:
+            btns = driver.find_elements(By.CSS_SELECTOR, selector)
+            if btns:
+                close_btn = btns[0]
+                log_step("Chat", f"Bezáró gomb megtalálva: {selector}")
+                break
+        
+        if close_btn and close_btn.is_enabled():
+            # Görgetés a gombhoz
+            driver.execute_script("arguments[0].scrollIntoView(true);", close_btn)
+            time.sleep(0.5)
+            
+            # Kattintás
+            human_click(driver, close_btn)
+            log_success("Chat bezáró gomb megnyomva")
+            time.sleep(1)
+            
+            # Megerősítő dialógus kezelése
+            confirm_selectors = [
+                "button.WACConfirmModal__YesButton",
+                ".WACConfirmModal__YesButton",
+                "[aria-label='Yes']",
+                "button:contains('Yes')"
+            ]
+            
+            for selector in confirm_selectors:
+                try:
+                    confirm_btn = WebDriverWait(driver, 2).until(
+                        EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+                    )
+                    if confirm_btn:
+                        human_click(driver, confirm_btn)
+                        log_success("Megerősítés elfogadva")
+                        time.sleep(1)
+                        break
+                except:
+                    continue
+        else:
+            log_step("Chat", "Bezáró gomb nem található vagy nem kattintható")
+            
+    except Exception as e:
+        log_step("Chat", f"Chat bezárási hiba: {str(e)}")
 
 def is_row_processed(ws, row_idx):
     for col in range(1, 6):
@@ -607,7 +717,6 @@ def save_pod_pdf(driver, download_folder, new_name, tracking_window):
                 print_window = new_wins.pop()
                 driver.switch_to.window(print_window)
                 log_success(f"Print preview ablakra valtva, URL: {driver.current_url}")
-                # Dinamikus varakozas - max 10mp, de ha betoltott azonnal tovabb
                 wait_start = time.time()
                 while time.time() - wait_start < 10:
                     state = driver.execute_script("return document.readyState")
@@ -668,7 +777,8 @@ def save_pod_pdf(driver, download_folder, new_name, tracking_window):
 
 def main():
     if len(sys.argv) < 5:
-        log_error("Hianyzo argumentumok (kell: url, excel, mappa, kezdosor)"); return 1
+        log_error("Hianyzo argumentumok (kell: url, excel, mappa, kezdosor)")
+        return 1
 
     ups_url         = sys.argv[1]
     excel_path      = sys.argv[2]
@@ -679,98 +789,61 @@ def main():
     log_message("UPS POD - debuggerAddress mod")
     log_message("="*60)
 
-    # ========== TEMP FAJL MASOLAS ==========
     log_message("[1/5] Excel beolvasasa...")
-    
-    # Eredeti fájl ellenőrzése
+
     if not os.path.exists(excel_path):
         log_error("Excel fajl nem talalhato!", excel_path)
         return 1
-    
-    # Temp fájl létrehozása időbélyeggel
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    excel_name, excel_ext = os.path.splitext(os.path.basename(excel_path))
-    temp_excel = os.path.join(tempfile.gettempdir(), f"ups_pod_{excel_name}_{timestamp}{excel_ext}")
-    
+
     try:
-        shutil.copy2(excel_path, temp_excel)
-        log_success(f"Excel masolva temp-be: {temp_excel}")
-    except Exception as e:
-        log_error("Excel fajl masolasi hiba", str(e))
-        return 1
-    
-    # Temp fájl használata minden művelethez
-    try:
-        df = pd.read_excel(temp_excel, sheet_name=0)
+        df = pd.read_excel(excel_path, sheet_name=0)
         log_success(f"Excel beolvasva - {len(df)} sor")
     except Exception as e:
         log_error("Excel olvasasi hiba", str(e))
-        try:
-            os.remove(temp_excel)
-        except:
-            pass
         return 1
 
     required = ['Tracking Number', 'összefűz']
     missing = [c for c in required if c not in df.columns]
     if missing:
         log_error("Hianyzó oszlopok", str(missing))
-        try:
-            os.remove(temp_excel)
-        except:
-            pass
         return 1
 
     try:
-        wb = load_workbook(temp_excel)
+        wb = load_workbook(excel_path)
         ws = wb.active
     except Exception as e:
-        log_error("Excel megnyitasi hiba - lehet hogy a fajl zarolva van!", str(e))
-        log_error("Megoldas: zard be az Excelt ha nyitva van, majd probald ujra")
-        try:
-            os.remove(temp_excel)
-        except:
-            pass
+        log_error("Excel megnyitasi hiba", str(e))
         return 1
 
-    # ========== SZŰRÉS - KEZDŐ SOR ÉS ZÖLD SOROK ==========
     to_process = []
-    processed_count = 0  # Zöld sorok számlálója
+    processed_count = 0
+    skipped_count = 0
     for idx, row in df.iterrows():
-        excel_row = idx + 2  # Excel sor száma (1. sor az oszlopnevek)
-        
-        # 1. Kezdő sor ellenőrzés
+        excel_row = idx + 2
         if excel_row < start_row:
-            log_step("Szures", f"Sor {excel_row} kihagyva (kezdo sor: {start_row})")
+            skipped_count += 1
             continue
-        
-        # 2. Zöld sor ellenőrzés
         if is_row_processed(ws, excel_row):
             processed_count += 1
             continue
-            
         tracking = str(row['Tracking Number']).strip() if pd.notna(row['Tracking Number']) else ''
         new_name = str(row['összefűz']).strip() if pd.notna(row['összefűz']) else ''
         if not tracking or not new_name:
             continue
         to_process.append((idx, excel_row, tracking, new_name))
-    
-    # Összesítő log a zöld sorokról
+
+    if skipped_count > 0:
+        log_step("Szures", f"{skipped_count} sor kihagyva (kezdo sor: {start_row})")
     if processed_count > 0:
         log_step("Szures", f"{processed_count} sor mar feldolgozva (zold), kihagyva")
 
     total = len(to_process)
     if total == 0:
         log_message("Nincs feldolgozando sor.")
-        try:
-            os.remove(temp_excel)
-        except:
-            pass
         return 0
     log_success(f"Feldolgozando sorok: {total}")
     update_progress(0, total)
 
-    # ========== CHROME CSATLAKOZÁS ==========
     log_message("[2/5] Csatlakozas a POD Chrome-hoz (port 9222)...")
     try:
         chrome_options = Options()
@@ -780,14 +853,9 @@ def main():
         log_success(f"Csatlakozva! Jelenlegi URL: {driver.current_url}")
     except Exception as e:
         log_error("Csatlakozasi hiba - fut-e a POD Chrome?", str(e))
-        try:
-            os.remove(temp_excel)
-        except:
-            pass
         return 1
 
     try:
-        # Bezarjuk az osszes meglevo tabot, csak egy maradjon
         all_handles = driver.window_handles
         if len(all_handles) > 1:
             log_step("Init", f"{len(all_handles)} tab talalhato, bezarjuk a feleslegeseket...")
@@ -803,12 +871,12 @@ def main():
         time.sleep(3)
         log_success("UPS tracking oldal betoltve")
 
-        processed     = 0
+        processed = 0
         success_count = 0
         zold_fill = PatternFill(start_color=GREEN_COLOR, end_color=GREEN_COLOR, fill_type='solid')
+        sarga_fill = PatternFill(start_color=YELLOW_COLOR, end_color=YELLOW_COLOR, fill_type='solid')
 
         for idx, excel_row, tracking, new_name in to_process:
-            # STOP ELLENŐRZÉS A CIKLUS ELEJÉN
             if should_stop():
                 log_message("Leallitasi keres eszlelve - Excel reszleges mentese...")
                 try:
@@ -820,7 +888,6 @@ def main():
                     log_success(f"Sikeres sorok: {success_count}")
                 except Exception as e:
                     log_error("Reszleges mentesi hiba", str(e))
-                # AZONNAL KILÉP, NEM MEGY TOVÁBB A [4/5] MENTÉSRE
                 return 0
 
             log_message("")
@@ -844,7 +911,8 @@ def main():
                     continue
 
             if not track_input:
-                log_error("Tracking mezo nem talalhato"); continue
+                log_error("Tracking mezo nem talalhato")
+                continue
 
             human_click(driver, track_input)
             time.sleep(random.uniform(0.5, 1.0))
@@ -893,12 +961,12 @@ def main():
                 )
                 log_success("Track gomb megtalálva")
             except Exception as e:
-                log_error("Track gomb hiba", str(e)); continue
+                log_error("Track gomb hiba", str(e))
+                continue
 
             human_click(driver, track_btn)
             log_success("Track gomb megnyomva")
 
-            # Dinamikus varakozas - max 8mp, de ha megjelenik a POD link azonnal tovabb
             log_step("Varas", "Tracking eredmenyre varunk (max 8mp)...")
             wait_start = time.time()
             while time.time() - wait_start < 8:
@@ -910,7 +978,6 @@ def main():
             close_policy_popup(driver)
             close_chat_if_present(driver)
 
-            # Van POD link?
             pod_link = None
             used = ""
             for by, sel, desc in [
@@ -927,6 +994,9 @@ def main():
 
             if not pod_link:
                 log_error("Nincs POD link - sor kihagyva, visszanavigalas...")
+                for col in range(1, 6):
+                    ws.cell(row=excel_row, column=col).fill = sarga_fill
+                log_success(f"Sor {excel_row} sargara szinezve (nincs POD)")
                 driver.get(ups_url)
                 time.sleep(random.uniform(3, 5))
                 tracking_found = False
@@ -936,9 +1006,13 @@ def main():
                         if driver.find_elements(By.ID, "stApp_trackingNumber"):
                             tracking_found = True
                             break
-                    except: pass
+                    except:
+                        pass
                     time.sleep(0.5)
+                processed += 1
+                update_progress(processed, total)
                 continue
+
             log_success("POD link megtalalhato - folytatjuk")
 
             tracking_window = driver.current_window_handle
@@ -959,10 +1033,14 @@ def main():
             pdf_saved = save_pod_pdf(driver, download_folder, new_name, tracking_window)
 
             if pdf_saved:
-                for col in range(1, 6):
-                    ws.cell(row=excel_row, column=col).fill = zold_fill
-                log_success(f"Sor {excel_row} zoldre szinezve")
-                success_count += 1
+                output_path_check = os.path.join(download_folder, f"{new_name}.pdf")
+                if os.path.exists(output_path_check) and os.path.getsize(output_path_check) > 0:
+                    for col in range(1, 6):
+                        ws.cell(row=excel_row, column=col).fill = zold_fill
+                    log_success(f"Sor {excel_row} zoldre szinezve - PDF ellenorizve OK")
+                    success_count += 1
+                else:
+                    log_error(f"PDF fajl nem talalhato a lemezen, sor NEM szinezve: {new_name}.pdf")
             else:
                 log_error("PDF mentes sikertelen")
 
@@ -971,7 +1049,7 @@ def main():
             time.sleep(random.uniform(3, 5))
 
             tracking_found = False
-            for _ in range(30):  # 30 * 0.5 = 15 masodperc
+            for _ in range(30):
                 if should_stop():
                     log_message("Stop jel erkezett visszanavigalas kozben")
                     break
@@ -992,7 +1070,6 @@ def main():
             update_progress(processed, total)
             log_success(f"Feldolgozva: {processed}/{total}")
 
-        # [4] Excel mentés - letöltési mappába
         log_message("")
         log_message("[4/5] Excel mentese...")
         excel_basename = os.path.basename(excel_path)
@@ -1008,45 +1085,46 @@ def main():
             sys.stdout.write("LOG: [5/5] Kesz!\n")
             sys.stdout.flush()
         except Exception as e:
-            log_error("Excel mentesi hiba", str(e)); return 1
+            log_error("Excel mentesi hiba", str(e))
+            return 1
 
         return 0
 
     except Exception as e:
-        log_error("Varatlan hiba", str(e)); return 1
+        log_error("Varatlan hiba", str(e))
+        return 1
     finally:
-        # Temp fájl törlése minden esetben
         try:
-            if os.path.exists(temp_excel):
-                os.remove(temp_excel)
-                log_success(f"Temp fajl torolve: {temp_excel}")
+            if os.path.exists(STOP_FILE):
+                os.remove(STOP_FILE)
         except:
             pass
         sys.stdout.write("LOG: A POD Chrome nyitva maradt.\n")
         sys.stdout.flush()
-        if os.path.exists(STOP_FILE):
-            os.remove(STOP_FILE)
 
 if __name__ == "__main__":
     sys.exit(main())
 '@
 
-    $tempPython = [System.IO.Path]::GetTempFileName() + ".py"
+    $script:tempPython = [System.IO.Path]::GetTempFileName() + ".py"
     $utf8WithBom = New-Object System.Text.UTF8Encoding $true
-    [System.IO.File]::WriteAllText($tempPython, $pythonScript, $utf8WithBom)
+    [System.IO.File]::WriteAllText($script:tempPython, $pythonScript, $utf8WithBom)
 
-    Write-Log "Python script futtatasa..."
-    Write-Log ""
+    Write-Log "Python script létrehozva: $script:tempPython"
 
-    # Python keresese
+    # Python keresése
     $pythonExe = $null
     $pythonCandidates = @("py", "python", "python3")
     foreach ($candidate in $pythonCandidates) {
         try {
             $found = Get-Command $candidate -ErrorAction SilentlyContinue
-            if ($found) { $pythonExe = $candidate; break }
+            if ($found) { 
+                $pythonExe = $candidate
+                break 
+            }
         } catch {}
     }
+    
     if (-not $pythonExe) {
         $knownPaths = @(
             "C:\Program Files\Python313\python.exe",
@@ -1057,20 +1135,29 @@ if __name__ == "__main__":
             "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe"
         )
         foreach ($p in $knownPaths) {
-            if (Test-Path $p) { $pythonExe = $p; break }
+            if (Test-Path $p) { 
+                $pythonExe = $p
+                break 
+            }
         }
     }
+    
     if (-not $pythonExe) {
+        Write-Log "HIBA: Python nem található!"
         [System.Windows.Forms.MessageBox]::Show(
             "Python nem talalhato a gepen!`nTelepitsd a Python-t es probald ujra.",
             "Python hiányzik", "OK", "Error")
-        $startButton.Enabled = $true; $stopButton.Enabled = $false; return
+        $startButton.Enabled = $true
+        $stopButton.Enabled = $false
+        try { Remove-Item $tempExcel -Force -ErrorAction SilentlyContinue } catch {}
+        return
     }
     Write-Log "Python: $pythonExe"
 
+    # Folyamat indítása
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $pythonExe
-    $psi.Arguments = "`"$tempPython`" `"$url`" `"$excelPath`" `"$downloadFolder`" `"$startRow`""
+    $psi.Arguments = "`"$script:tempPython`" `"$url`" `"$tempExcel`" `"$downloadFolder`" `"$startRow`""
     $psi.UseShellExecute = $false
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
@@ -1082,89 +1169,144 @@ if __name__ == "__main__":
     $process.StartInfo = $psi
     $script:pythonProcess = $process
 
-    $outputEvent = Register-ObjectEvent -InputObject $process -EventName 'OutputDataReceived' -Action {
+    # Output eseménykezelő
+    $script:outputEvent = Register-ObjectEvent -InputObject $process -EventName 'OutputDataReceived' -Action {
         $data = $EventArgs.Data
         if ($data -ne $null) {
             if ($data.StartsWith("LOG: ")) {
                 $message = $data.Substring(5)
-                $form.Invoke([Action]{
-                    $logBox.AppendText($message + "`r`n")
-                    $logBox.ScrollToCaret()
-                    $logBox.Refresh()
-                })
+                try {
+                    $form.Invoke([Action]{
+                        $logBox.AppendText($message + "`r`n")
+                        $logBox.ScrollToCaret()
+                        $logBox.Refresh()
+                    })
+                } catch {}
             } elseif ($data.StartsWith("PROGRESS: ")) {
                 $parts = $data.Substring(10).Split(',')
                 if ($parts.Count -eq 2) {
-                    $current = [int]$parts[0]; $total = [int]$parts[1]
-                    $form.Invoke([Action]{
-                        $progressBar.Maximum = $total
-                        $progressBar.Value = $current
-                        $progressBar.Refresh()
-                    })
+                    $current = [int]$parts[0]
+                    $total = [int]$parts[1]
+                    try {
+                        $form.Invoke([Action]{
+                            $progressBar.Maximum = $total
+                            $progressBar.Value = $current
+                            $progressBar.Refresh()
+                        })
+                    } catch {}
                 }
             }
         }
     }
 
-    $errorEvent = Register-ObjectEvent -InputObject $process -EventName 'ErrorDataReceived' -Action {
+    # Error eseménykezelő
+    $script:errorEvent = Register-ObjectEvent -InputObject $process -EventName 'ErrorDataReceived' -Action {
         $data = $EventArgs.Data
         if ($data -ne $null) {
-            $form.Invoke([Action]{
-                $logBox.AppendText("PYTHON HIBA: $data`r`n")
-                $logBox.ScrollToCaret()
-                $logBox.Refresh()
-            })
-            Add-Content -Path "C:\temp\python_hibak.log" -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $data`r`n" -ErrorAction SilentlyContinue
+            try {
+                $form.Invoke([Action]{
+                    $logBox.AppendText("PYTHON HIBA: $data`r`n")
+                    $logBox.ScrollToCaret()
+                    $logBox.Refresh()
+                })
+            } catch {}
         }
     }
 
+    # Exited eseménykezelő - JAVÍTVA: a Clear-AllChromeProcesses az Invoke-on BELÜL van
     $process.EnableRaisingEvents = $true
     $script:exitedEvent = Register-ObjectEvent -InputObject $process -EventName 'Exited' -Action {
         $exitCode = $process.ExitCode
-        $script:pythonProcess = $null
-
-        Unregister-Event -SourceIdentifier $outputEvent.Name -Force -ErrorAction SilentlyContinue
-        Unregister-Event -SourceIdentifier $errorEvent.Name -Force -ErrorAction SilentlyContinue
-        Remove-Item $tempPython -Force -ErrorAction SilentlyContinue
-
-        # Clear-AllChromeProcesses ELTÁVOLÍTVA innen!
-
-        $form.Invoke([Action]{
-            Write-Log ""
-            Write-Log "="*50
-            if ($exitCode -eq 0) {
-                Write-Log "SIKERESEN BEFEJEZODOTT"
-                $form.TopMost = $true
-                $form.Activate()
-                [System.Windows.Forms.MessageBox]::Show("A letöltés sikeresen befejeződött!", "Siker", "OK", "Information")
-                $form.TopMost = $false
-            } else {
-                Write-Log "HIBA TORTENT (kód: $exitCode)"
-                $form.TopMost = $true
-                $form.Activate()
-                [System.Windows.Forms.MessageBox]::Show("Hiba történt! Ellenőrizd a naplót.", "Hiba", "OK", "Error")
-                $form.TopMost = $false
+        
+        # Eseménykezelők törlése
+        try {
+            Unregister-Event -SourceIdentifier $script:outputEvent.Name -Force -ErrorAction SilentlyContinue
+            Unregister-Event -SourceIdentifier $script:errorEvent.Name -Force -ErrorAction SilentlyContinue
+        } catch {}
+        
+        # Temp fájlok törlése
+        try {
+            if ($script:tempPython -and (Test-Path $script:tempPython)) {
+                Remove-Item $script:tempPython -Force -ErrorAction SilentlyContinue
             }
-            Write-Log "="*50
-            $progressBar.Value = 0
-            $startButton.Enabled = $true
-            $stopButton.Enabled = $false
-        })
+            if ($tempExcel -and (Test-Path $tempExcel)) {
+                Remove-Item $tempExcel -Force -ErrorAction SilentlyContinue
+            }
+        } catch {}
+        
+        # GUI frissítés - IDE KERÜLT a Clear-AllChromeProcesses az Invoke-on BELÜLRE
+        try {
+            $form.Invoke([Action]{
+                Write-Log ""
+                Write-Log "="*50
+                
+                if ($exitCode -eq 0) {
+                    Write-Log "SIKERESEN BEFEJEZODOTT"
+                    
+                    # Sikeres üzenetablak
+                    $form.TopMost = $true
+                    $form.Activate()
+                    [System.Windows.Forms.MessageBox]::Show(
+                        "A letöltés sikeresen befejeződött!`n`n" +
+                        "A feldolgozott Excel fájl a letöltési mappában található.",
+                        "Siker", "OK", "Information")
+                    $form.TopMost = $false
+                } else {
+                    Write-Log "HIBA TORTENT (kód: $exitCode)"
+                    $form.TopMost = $true
+                    $form.Activate()
+                    [System.Windows.Forms.MessageBox]::Show(
+                        "Hiba történt! Ellenőrizd a naplót a részletekért.",
+                        "Hiba", "OK", "Error")
+                    $form.TopMost = $false
+                }
+                
+                Write-Log "="*50
+                $progressBar.Value = 0
+                $startButton.Enabled = $true
+                $stopButton.Enabled = $false
+            })
+        } catch {}
+        
+        # Chrome takarítás - CSAK a chromedriver-t, a Chrome-ot megtartjuk
+        Clear-AllChromeProcesses -Silent -IncludeDriver -ForceKill
+        
+        $script:pythonProcess = $null
     }
 
-    $process.Start() | Out-Null
-    $process.BeginOutputReadLine()
-    $process.BeginErrorReadLine()
+    # Folyamat indítása
+    try {
+        $process.Start() | Out-Null
+        $process.BeginOutputReadLine()
+        $process.BeginErrorReadLine()
+        Write-Log "Python folyamat elindítva"
+    } catch {
+        Write-Log "HIBA a Python folyamat indításakor: $_"
+        $startButton.Enabled = $true
+        $stopButton.Enabled = $false
+        try { Remove-Item $tempExcel -Force -ErrorAction SilentlyContinue } catch {}
+    }
 })
 
-# Vegso takaritas ha a form bezarodik
+# Form bezárás eseménykezelő
 $form.Add_FormClosing({
     if ($script:pythonProcess -and !$script:pythonProcess.HasExited) {
         Set-Content -Path (Join-Path $env:TEMP "ups_pod_stop.txt") -Value "stop" -Force
-        Start-Sleep -Seconds 1
-        if (!$script:pythonProcess.HasExited) { $script:pythonProcess.Kill() }
+        Start-Sleep -Seconds 2
+        if (!$script:pythonProcess.HasExited) {
+            $script:pythonProcess.Kill()
+        }
     }
-    Clear-AllChromeProcesses -Silent -IncludeDriver
+    
+    # Eseménykezelők törlése
+    try {
+        if ($script:outputEvent) { Unregister-Event -SourceIdentifier $script:outputEvent.Name -Force -ErrorAction SilentlyContinue }
+        if ($script:errorEvent) { Unregister-Event -SourceIdentifier $script:errorEvent.Name -Force -ErrorAction SilentlyContinue }
+        if ($script:exitedEvent) { Unregister-Event -SourceIdentifier $script:exitedEvent.Name -Force -ErrorAction SilentlyContinue }
+    } catch {}
+    
+    # Csak a chromedriver-t takarítjuk
+    Clear-AllChromeProcesses -Silent -IncludeDriver -ForceKill
 })
 
 $form.ShowDialog()
