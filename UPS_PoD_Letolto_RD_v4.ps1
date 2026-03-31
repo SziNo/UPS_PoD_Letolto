@@ -11,7 +11,7 @@ $env:HTTPS_PROXY = "http://cloudproxy.dhl.com:10123"
 $env:NO_PROXY = "127.0.0.1,localhost"
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "UPS PoD Letöltő"
-$form.Size = New-Object System.Drawing.Size(650, 800)
+$form.Size = New-Object System.Drawing.Size(650, 825)
 $form.StartPosition = "CenterScreen"
 $form.BackColor = "White"
 
@@ -24,7 +24,7 @@ $headerLabel.Font = New-Object System.Drawing.Font("Arial", 14, [System.Drawing.
 $headerLabel.ForeColor = "DarkBlue"
 $form.Controls.Add($headerLabel)
 
-# --- Útmutató (MÓDOSÍTVA: 3 felhasználási javaslat hozzáadva) ---
+# --- Útmutató ---
 $infoPanel = New-Object System.Windows.Forms.Panel
 $infoPanel.Location = New-Object System.Drawing.Point(10, 50)
 $infoPanel.Size = New-Object System.Drawing.Size(600, 135)
@@ -33,19 +33,399 @@ $infoPanel.BackColor = "LightYellow"
 $infoLabel = New-Object System.Windows.Forms.Label
 $infoLabel.Location = New-Object System.Drawing.Point(10, 5)
 $infoLabel.Size = New-Object System.Drawing.Size(580, 125)
-$infoLabel.Text = "Használat:`n" +
-"1. Kattints a 'PoD Chrome indítása' gombra - megnyílik egy Chrome ablak`n" +
-"2. Jelentkezz be UPS fiókodba ebben a Chrome-ban! És utána nagyon fontos, hogy ne zárd be!`n" +
-"3. Válaszd ki az Excel fájlt és a letöltési mappát, majd kattints az Indítás gombra!`n`n" +
-"⚠️ Problémák esetén:`n" +
-"   → Chrome nem csinál semmit? Excel fájl lehet zárolva → átnevezés / Ctrl+S mentés / másik mappa`n" +
-"   → UPS oldal lefagy? STOP gomb → Profil törlés → Chrome tisztítás`n" +
-"   → Utolsó sor után megáll? Profil törlés → Chrome tisztítás"
+$infoLabel.Text = "Használat:`n1. Kattints a 'PoD Chrome indítása' gombra - megnyílik egy Chrome ablak`n2. Jelentkezz be UPS fiókodba ebben a Chrome-ban! És utána nagyon fontos, hogy ne zárd be!`n3. Válaszd ki az Excel fájlt és a letöltési mappát, majd kattints az Indítás gombra!`n`n⚠️ Problémák esetén:`n   → Chrome nem csinál semmit? Excel fájl lehet zárolva → átnevezés / Ctrl+S / másik mappa`n   → UPS oldal lefagy? STOP → Profil törlés → Chrome tisztítás"
 $infoLabel.Font = New-Object System.Drawing.Font("Arial", 9)
 $infoPanel.Controls.Add($infoLabel)
 $form.Controls.Add($infoPanel)
 
-# ... (a többi rész változatlan marad egészen az Exited eseménykezelőig) ...
+# --- 1. lépés: POD Chrome ---
+$step1Label = New-Object System.Windows.Forms.Label
+$step1Label.Location = New-Object System.Drawing.Point(10, 197)
+$step1Label.Size = New-Object System.Drawing.Size(600, 20)
+$step1Label.Text = "1. lépés: PoD Chrome indítása"
+$step1Label.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
+$step1Label.ForeColor = "DarkBlue"
+$form.Controls.Add($step1Label)
+
+$launchChromeButton = New-Object System.Windows.Forms.Button
+$launchChromeButton.Location = New-Object System.Drawing.Point(10, 220)
+$launchChromeButton.Size = New-Object System.Drawing.Size(200, 32)
+$launchChromeButton.Text = "PoD Chrome indítása"
+$launchChromeButton.BackColor = "SteelBlue"
+$launchChromeButton.ForeColor = "White"
+$launchChromeButton.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
+$launchChromeButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1] Kéz kurzor
+$launchChromeButton.Add_Click({
+    $portCheck = Test-NetConnection -ComputerName 127.0.0.1 -Port 9222 -WarningAction SilentlyContinue -InformationLevel Quiet
+    if ($portCheck) {
+        Write-Log "POD Chrome mar fut a 9222-es porton."
+        $chromeStatus.Text = "✓ POD Chrome fut"
+        $chromeStatus.ForeColor = "DarkGreen"
+        return
+    }
+
+    $chromePaths = @(
+        "C:\Program Files\Google\Chrome\Application\chrome.exe",
+        "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+    )
+    $chromePath = $null
+    foreach ($p in $chromePaths) { if (Test-Path $p) { $chromePath = $p; break } }
+
+    if (-not $chromePath) {
+        [System.Windows.Forms.MessageBox]::Show("Chrome nem található!", "Chrome nem található", "OK", "Warning")
+        return
+    }
+
+    $profileDir = "$env:TEMP\SeleniumProfile_$([Environment]::UserName)"
+    $upsUrl = $urlBox.Text.Trim()
+    $chromeArgs = @(
+        "--remote-debugging-port=9222",
+        "--user-data-dir=`"$profileDir`"",
+        "--disable-background-timer-throttling",
+        "--disable-renderer-backgrounding",
+        "--disable-backgrounding-occluded-windows",
+        "--disable-ipc-flooding-protection",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "`"$upsUrl`""
+    )
+    Start-Process $chromePath -ArgumentList ($chromeArgs -join " ")
+    Write-Log "POD Chrome elindítva -> $upsUrl"
+    Write-Log ">>> Jelentkezz be az UPS-be, majd kattints az Indítás gombra!"
+    $chromeStatus.Text = "✓ Chrome elindult - jelentkezz be az UPS-be!"
+    $chromeStatus.ForeColor = "DarkGreen"
+})
+$form.Controls.Add($launchChromeButton)
+
+# Profil torles gomb
+$cleanProfileButton = New-Object System.Windows.Forms.Button
+$cleanProfileButton.Location = New-Object System.Drawing.Point(220, 220)
+$cleanProfileButton.Size = New-Object System.Drawing.Size(130, 32)
+$cleanProfileButton.Text = "Profil törlés"
+$cleanProfileButton.BackColor = "DarkOrange"
+$cleanProfileButton.ForeColor = "White"
+$cleanProfileButton.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
+$cleanProfileButton.Cursor = [System.Windows.Forms.Cursors]::Hand
+$cleanProfileButton.Add_Click({
+    if ($script:pythonProcess -and !$script:pythonProcess.HasExited) {
+        Set-Content -Path (Join-Path $env:TEMP "ups_pod_stop.txt") -Value "stop" -Force
+        Write-Log "Stop jel kuldve - varunk hogy Python elmentse az Excelt..."
+        $waited = 0
+        while ($script:pythonProcess -and !$script:pythonProcess.HasExited -and $waited -lt 15) {
+            Start-Sleep -Milliseconds 500
+            $waited += 0.5
+            [System.Windows.Forms.Application]::DoEvents()
+        }
+        if ($script:pythonProcess -and !$script:pythonProcess.HasExited) {
+            $script:pythonProcess.Kill()
+            Write-Log "Python folyamat kenyszeritve leallitva"
+        }
+        $progressBar.Value = 0
+        $startButton.Enabled = $true
+    }
+    Clear-AllChromeProcesses -IncludeDriver
+    $profileDir = "$env:TEMP\SeleniumProfile_$([Environment]::UserName)"
+    if (Test-Path $profileDir) {
+        try {
+            Remove-Item -Path $profileDir -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Log "SeleniumProfile torolve: $profileDir"
+            $chromeStatus.Text = "Profil torolve - Chrome ujraindithato"
+            $chromeStatus.ForeColor = "DarkGreen"
+        } catch {
+            Write-Log "Hiba a profil torlesekor: $_"
+        }
+    } else {
+        Write-Log "Profil mappa nem talalhato"
+        $chromeStatus.Text = "Profil nem letezik"
+        $chromeStatus.ForeColor = "Gray"
+    }
+    Remove-Item (Join-Path $env:TEMP "ups_pod_stop.txt") -Force -ErrorAction SilentlyContinue
+    if ($script:exitedEvent) {
+        Unregister-Event -SourceIdentifier $script:exitedEvent.Name -Force -ErrorAction SilentlyContinue
+    }
+})
+$form.Controls.Add($cleanProfileButton)
+
+# Chrome tisztitas gomb
+$cleanChromeButton = New-Object System.Windows.Forms.Button
+$cleanChromeButton.Location = New-Object System.Drawing.Point(358, 220)
+$cleanChromeButton.Size = New-Object System.Drawing.Size(140, 32)
+$cleanChromeButton.Text = "Chrome tisztítás"
+$cleanChromeButton.BackColor = "Crimson"
+$cleanChromeButton.ForeColor = "White"
+$cleanChromeButton.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
+$cleanChromeButton.Cursor = [System.Windows.Forms.Cursors]::Hand
+$cleanChromeButton.Add_Click({
+    Clear-AllChromeProcesses -IncludeDriver
+    $chromeStatus.Text = "Chrome tisztitva - inditsd ujra"
+    $chromeStatus.ForeColor = "DarkRed"
+})
+$form.Controls.Add($cleanChromeButton)
+
+$chromeStatus = New-Object System.Windows.Forms.Label
+$chromeStatus.Location = New-Object System.Drawing.Point(506, 228)
+$chromeStatus.Size = New-Object System.Drawing.Size(120, 18)
+$chromeStatus.Text = "Chrome nem fut"
+$chromeStatus.Font = New-Object System.Drawing.Font("Arial", 8)
+$chromeStatus.ForeColor = "Gray"
+$form.Controls.Add($chromeStatus)
+
+# --- Elválasztó ---
+$sep = New-Object System.Windows.Forms.Label
+$sep.Location = New-Object System.Drawing.Point(10, 260)
+$sep.Size = New-Object System.Drawing.Size(610, 2)
+$sep.BorderStyle = "Fixed3D"
+$form.Controls.Add($sep)
+
+# --- 2. lépés ---
+$step2Label = New-Object System.Windows.Forms.Label
+$step2Label.Location = New-Object System.Drawing.Point(10, 267)
+$step2Label.Size = New-Object System.Drawing.Size(600, 20)
+$step2Label.Text = "2. lépés: Fájlok és beállítások"
+$step2Label.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
+$step2Label.ForeColor = "DarkBlue"
+$form.Controls.Add($step2Label)
+
+# UPS URL
+$urlLabel = New-Object System.Windows.Forms.Label
+$urlLabel.Location = New-Object System.Drawing.Point(10, 295)
+$urlLabel.Size = New-Object System.Drawing.Size(120, 25)
+$urlLabel.Text = "UPS URL:"
+$urlLabel.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
+$form.Controls.Add($urlLabel)
+
+$urlBox = New-Object System.Windows.Forms.TextBox
+$urlBox.Location = New-Object System.Drawing.Point(140, 295)
+$urlBox.Size = New-Object System.Drawing.Size(470, 25)
+$urlBox.Text = "https://www.ups.com/track?loc=en_US&requester=ST/"
+$urlBox.Font = New-Object System.Drawing.Font("Arial", 10)
+$form.Controls.Add($urlBox)
+
+# Excel fájl
+$excelLabel = New-Object System.Windows.Forms.Label
+$excelLabel.Location = New-Object System.Drawing.Point(10, 330)
+$excelLabel.Size = New-Object System.Drawing.Size(120, 25)
+$excelLabel.Text = "Excel fájl:"
+$excelLabel.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
+$form.Controls.Add($excelLabel)
+
+$excelBox = New-Object System.Windows.Forms.TextBox
+$excelBox.Location = New-Object System.Drawing.Point(140, 330)
+$excelBox.Size = New-Object System.Drawing.Size(370, 25)
+$excelBox.Font = New-Object System.Drawing.Font("Arial", 10)
+$form.Controls.Add($excelBox)
+
+$excelButton = New-Object System.Windows.Forms.Button
+$excelButton.Location = New-Object System.Drawing.Point(520, 330)
+$excelButton.Size = New-Object System.Drawing.Size(90, 25)
+$excelButton.Text = "Tallózás"
+$excelButton.Font = New-Object System.Drawing.Font("Arial", 9)
+$excelButton.BackColor = "LightGray"
+$excelButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1]
+$excelButton.Add_Click({
+    $fb = New-Object System.Windows.Forms.OpenFileDialog
+    $fb.Filter = "Excel files (*.xlsx;*.xls)|*.xlsx;*.xls"
+    if ($fb.ShowDialog() -eq "OK") { $excelBox.Text = $fb.FileName }
+})
+$form.Controls.Add($excelButton)
+
+# Letöltési mappa
+$folderLabel = New-Object System.Windows.Forms.Label
+$folderLabel.Location = New-Object System.Drawing.Point(10, 365)
+$folderLabel.Size = New-Object System.Drawing.Size(120, 25)
+$folderLabel.Text = "Letöltési mappa:"
+$folderLabel.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
+$form.Controls.Add($folderLabel)
+
+$folderBox = New-Object System.Windows.Forms.TextBox
+$folderBox.Location = New-Object System.Drawing.Point(140, 365)
+$folderBox.Size = New-Object System.Drawing.Size(370, 25)
+$folderBox.Font = New-Object System.Drawing.Font("Arial", 10)
+$folderBox.Text = [Environment]::GetFolderPath("Desktop")
+$form.Controls.Add($folderBox)
+
+$folderButton = New-Object System.Windows.Forms.Button
+$folderButton.Location = New-Object System.Drawing.Point(520, 365)
+$folderButton.Size = New-Object System.Drawing.Size(90, 25)
+$folderButton.Text = "Tallózás"
+$folderButton.Font = New-Object System.Drawing.Font("Arial", 9)
+$folderButton.BackColor = "LightGray"
+$folderButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1]
+$folderButton.Add_Click({
+    $fb = New-Object System.Windows.Forms.FolderBrowserDialog
+    $fb.ShowNewFolderButton = $true
+    if ($fb.ShowDialog() -eq "OK") { $folderBox.Text = $fb.SelectedPath }
+})
+$form.Controls.Add($folderButton)
+
+# Excel oszlopok info
+$checkLabel = New-Object System.Windows.Forms.Label
+$checkLabel.Location = New-Object System.Drawing.Point(10, 403)
+$checkLabel.Size = New-Object System.Drawing.Size(600, 20)
+$checkLabel.Text = "Az Excel-ben szükséges oszlopok:"
+$checkLabel.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
+$form.Controls.Add($checkLabel)
+
+$checkList = New-Object System.Windows.Forms.ListBox
+$checkList.Location = New-Object System.Drawing.Point(10, 423)
+$checkList.Size = New-Object System.Drawing.Size(600, 40)
+$checkList.Font = New-Object System.Drawing.Font("Arial", 9)
+$checkList.Items.AddRange(@(
+    "✓ 'Tracking Number' - a nyomkövetési szám",
+    "✓ 'összefűz' - a letöltött fájl végső neve (ű-vel!)"
+))
+$checkList.Enabled = $false
+$checkList.BackColor = "White"
+$form.Controls.Add($checkList)
+
+# --- Kezdő sor beállítás ---
+$startRowLabel = New-Object System.Windows.Forms.Label
+$startRowLabel.Location = New-Object System.Drawing.Point(10, 470)
+$startRowLabel.Size = New-Object System.Drawing.Size(120, 25)
+$startRowLabel.Text = "Kezdő sor:"
+$startRowLabel.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
+$form.Controls.Add($startRowLabel)
+
+$startRowBox = New-Object System.Windows.Forms.TextBox
+$startRowBox.Location = New-Object System.Drawing.Point(140, 470)
+$startRowBox.Size = New-Object System.Drawing.Size(80, 25)
+$startRowBox.Text = "2"
+$startRowBox.Font = New-Object System.Drawing.Font("Arial", 10)
+$form.Controls.Add($startRowBox)
+
+$startRowInfo = New-Object System.Windows.Forms.Label
+$startRowInfo.Location = New-Object System.Drawing.Point(230, 473)
+$startRowInfo.Size = New-Object System.Drawing.Size(350, 20)
+$startRowInfo.Text = "(alap: 2 = első adatsor, az 1. sor az oszlopnevek)"
+$startRowInfo.Font = New-Object System.Drawing.Font("Arial", 8)
+$startRowInfo.ForeColor = "Gray"
+$form.Controls.Add($startRowInfo)
+
+# --- Napló ---
+$logLabel = New-Object System.Windows.Forms.Label
+$logLabel.Location = New-Object System.Drawing.Point(10, 503)
+$logLabel.Size = New-Object System.Drawing.Size(600, 20)
+$logLabel.Text = "Folyamat napló:"
+$logLabel.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
+$form.Controls.Add($logLabel)
+
+$logBox = New-Object System.Windows.Forms.TextBox
+$logBox.Location = New-Object System.Drawing.Point(10, 523)
+$logBox.Size = New-Object System.Drawing.Size(610, 170)
+$logBox.Multiline = $true
+$logBox.ScrollBars = "Vertical"
+$logBox.ReadOnly = $true
+$logBox.Font = New-Object System.Drawing.Font("Consolas", 9)
+$logBox.BackColor = "Black"
+$logBox.ForeColor = "Lime"
+$form.Controls.Add($logBox)
+
+# --- Progress bar ---
+$progressBar = New-Object System.Windows.Forms.ProgressBar
+$progressBar.Location = New-Object System.Drawing.Point(10, 703)
+$progressBar.Size = New-Object System.Drawing.Size(310, 25)
+$form.Controls.Add($progressBar)
+
+# --- Gombok ---
+$script:stopRequested = $false
+$script:pythonProcess = $null
+
+$stopButton = New-Object System.Windows.Forms.Button
+$stopButton.Location = New-Object System.Drawing.Point(330, 703)
+$stopButton.Size = New-Object System.Drawing.Size(80, 25)
+$stopButton.Text = "STOP"
+$stopButton.BackColor = "Orange"
+$stopButton.ForeColor = "White"
+$stopButton.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
+$stopButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1]
+$stopButton.Enabled = $false
+$stopButton.Add_Click({
+    $script:stopRequested = $true
+    Write-Log "MEGALLAS kérve - varunk hogy Python elmentse az Excelt..."
+    Set-Content -Path (Join-Path $env:TEMP "ups_pod_stop.txt") -Value "stop" -Force
+    $waited = 0
+    while ($script:pythonProcess -and !$script:pythonProcess.HasExited -and $waited -lt 15) {
+        Start-Sleep -Milliseconds 500
+        $waited += 0.5
+        [System.Windows.Forms.Application]::DoEvents()
+    }
+    if ($script:pythonProcess -and !$script:pythonProcess.HasExited) {
+        $script:pythonProcess.Kill()
+    }
+    Clear-AllChromeProcesses -IncludeDriver
+    Write-Log "Megallitva."
+    $progressBar.Value = 0
+    $startButton.Enabled = $true
+    $stopButton.Enabled = $false
+    if ($script:exitedEvent) {
+        Unregister-Event -SourceIdentifier $script:exitedEvent.Name -Force -ErrorAction SilentlyContinue
+    }
+})
+$form.Controls.Add($stopButton)
+
+$startButton = New-Object System.Windows.Forms.Button
+$startButton.Location = New-Object System.Drawing.Point(420, 703)
+$startButton.Size = New-Object System.Drawing.Size(100, 25)
+$startButton.Text = "Indítás"  # [2] Rövidebb felirat
+$startButton.BackColor = "ForestGreen"
+$startButton.ForeColor = "White"
+$startButton.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
+$startButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1]
+$form.Controls.Add($startButton)
+
+$exitButton = New-Object System.Windows.Forms.Button
+$exitButton.Location = New-Object System.Drawing.Point(530, 703)
+$exitButton.Size = New-Object System.Drawing.Size(90, 25)
+$exitButton.Text = "Kilépés"
+$exitButton.BackColor = "DarkRed"
+$exitButton.ForeColor = "White"
+$exitButton.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
+$exitButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1]
+$exitButton.Add_Click({
+    if ($script:pythonProcess -and !$script:pythonProcess.HasExited) {
+        Set-Content -Path (Join-Path $env:TEMP "ups_pod_stop.txt") -Value "stop" -Force
+        Start-Sleep -Seconds 2
+        if (!$script:pythonProcess.HasExited) { $script:pythonProcess.Kill() }
+    }
+    $form.Close()
+})
+$form.Controls.Add($exitButton)
+
+function Write-Log {
+    param($Message)
+    $logBox.AppendText($Message + "`r`n")
+    $logBox.ScrollToCaret()
+    $logBox.Refresh()
+}
+
+function Clear-AllChromeProcesses {
+    param([switch]$Silent, [switch]$IncludeDriver)
+    $log = { param($msg) if (-not $Silent) { try { Write-Log $msg } catch {} } }
+    & $log "Chrome folyamatok takaritasa..."
+    $chromeNames = @("chrome", "GoogleCrashHandler", "GoogleCrashHandler64", "software_reporter_tool")
+    if ($IncludeDriver) { $chromeNames += "chromedriver" }
+    foreach ($procName in $chromeNames) {
+        $procs = Get-Process -Name $procName -ErrorAction SilentlyContinue
+        if ($procs) {
+            $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+            & $log "  $procName leallitva"
+        }
+    }
+    Start-Sleep -Seconds 1
+    $portCheck = Test-NetConnection -ComputerName 127.0.0.1 -Port 9222 -WarningAction SilentlyContinue -InformationLevel Quiet
+    if (-not $portCheck) {
+        & $log "  Port 9222 szabad"
+    } else {
+        try {
+            $pid9222 = (netstat -ano | Select-String ":9222" | Select-String "LISTENING") -replace ".*\s+(\d+)$","$1"
+            if ($pid9222) {
+                Stop-Process -Id ([int]$pid9222.Trim()) -Force -ErrorAction SilentlyContinue
+                & $log "  Port 9222 folyamat leallitva"
+            }
+        } catch {}
+    }
+}
 
 # =====================================================
 # LETÖLTÉS INDÍTÁSA
@@ -726,7 +1106,8 @@ if __name__ == "__main__":
         Unregister-Event -SourceIdentifier $script:errorEvent.Name -Force -ErrorAction SilentlyContinue
         Remove-Item $script:tempPython -Force -ErrorAction SilentlyContinue
 
-        # IDE KERÜL A GUI FRISSÍTÉS, ÉS IDE KERÜL A Clear-AllChromeProcesses IS (MESSAGEBOX UTÁN)
+        Clear-AllChromeProcesses -Silent -IncludeDriver
+
         $form.Invoke([Action]{
             Write-Log ""
             Write-Log "="*50
@@ -747,9 +1128,6 @@ if __name__ == "__main__":
             $progressBar.Value = 0
             $startButton.Enabled = $true
             $stopButton.Enabled = $false
-            
-            # IDE KERÜLT ÁT A Clear-AllChromeProcesses (MessageBox után)
-            Clear-AllChromeProcesses -Silent -IncludeDriver
         })
     }
 
