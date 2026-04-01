@@ -24,7 +24,7 @@ $headerLabel.Font = New-Object System.Drawing.Font("Arial", 14, [System.Drawing.
 $headerLabel.ForeColor = "DarkBlue"
 $form.Controls.Add($headerLabel)
 
-# --- Útmutató ---
+# --- Útmutató (MÓDOSÍTVA: 3 felhasználási javaslat) ---
 $infoPanel = New-Object System.Windows.Forms.Panel
 $infoPanel.Location = New-Object System.Drawing.Point(10, 50)
 $infoPanel.Size = New-Object System.Drawing.Size(600, 135)
@@ -33,7 +33,14 @@ $infoPanel.BackColor = "LightYellow"
 $infoLabel = New-Object System.Windows.Forms.Label
 $infoLabel.Location = New-Object System.Drawing.Point(10, 5)
 $infoLabel.Size = New-Object System.Drawing.Size(580, 125)
-$infoLabel.Text = "Használat:`n1. Kattints a 'PoD Chrome indítása' gombra - megnyílik egy Chrome ablak`n2. Jelentkezz be UPS fiókodba ebben a Chrome-ban! És utána nagyon fontos, hogy ne zárd be!`n3. Válaszd ki az Excel fájlt és a letöltési mappát, majd kattints az Indítás gombra!`n`n⚠️ Problémák esetén:`n   → Chrome nem csinál semmit? Excel fájl lehet zárolva → átnevezés / Ctrl+S / másik mappa`n   → UPS oldal lefagy? STOP → Profil törlés → Chrome tisztítás"
+$infoLabel.Text = "Használat:`n" +
+"1. Kattints a 'PoD Chrome indítása' gombra - megnyílik egy Chrome ablak`n" +
+"2. Jelentkezz be UPS fiókodba ebben a Chrome-ban! És utána nagyon fontos, hogy ne zárd be!`n" +
+"3. Válaszd ki az Excel fájlt és a letöltési mappát, majd kattints az Indítás gombra!`n`n" +
+"⚠️ Problémák esetén:`n" +
+"   → Chrome nem csinál semmit? Excel fájl lehet zárolva → átnevezés / Ctrl+S / másik mappa`n" +
+"   → UPS oldal lefagy? STOP → Profil törlés → Chrome tisztítás`n" +
+"   → Utolsó sor után megáll? Profil törlés → Chrome tisztítás"
 $infoLabel.Font = New-Object System.Drawing.Font("Arial", 9)
 $infoPanel.Controls.Add($infoLabel)
 $form.Controls.Add($infoPanel)
@@ -54,7 +61,7 @@ $launchChromeButton.Text = "PoD Chrome indítása"
 $launchChromeButton.BackColor = "SteelBlue"
 $launchChromeButton.ForeColor = "White"
 $launchChromeButton.Font = New-Object System.Drawing.Font("Arial", 10, [System.Drawing.FontStyle]::Bold)
-$launchChromeButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1] Kéz kurzor
+$launchChromeButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $launchChromeButton.Add_Click({
     $portCheck = Test-NetConnection -ComputerName 127.0.0.1 -Port 9222 -WarningAction SilentlyContinue -InformationLevel Quiet
     if ($portCheck) {
@@ -222,7 +229,7 @@ $excelButton.Size = New-Object System.Drawing.Size(90, 25)
 $excelButton.Text = "Tallózás"
 $excelButton.Font = New-Object System.Drawing.Font("Arial", 9)
 $excelButton.BackColor = "LightGray"
-$excelButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1]
+$excelButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $excelButton.Add_Click({
     $fb = New-Object System.Windows.Forms.OpenFileDialog
     $fb.Filter = "Excel files (*.xlsx;*.xls)|*.xlsx;*.xls"
@@ -251,7 +258,7 @@ $folderButton.Size = New-Object System.Drawing.Size(90, 25)
 $folderButton.Text = "Tallózás"
 $folderButton.Font = New-Object System.Drawing.Font("Arial", 9)
 $folderButton.BackColor = "LightGray"
-$folderButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1]
+$folderButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $folderButton.Add_Click({
     $fb = New-Object System.Windows.Forms.FolderBrowserDialog
     $fb.ShowNewFolderButton = $true
@@ -338,7 +345,7 @@ $stopButton.Text = "STOP"
 $stopButton.BackColor = "Orange"
 $stopButton.ForeColor = "White"
 $stopButton.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
-$stopButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1]
+$stopButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $stopButton.Enabled = $false
 $stopButton.Add_Click({
     $script:stopRequested = $true
@@ -367,11 +374,11 @@ $form.Controls.Add($stopButton)
 $startButton = New-Object System.Windows.Forms.Button
 $startButton.Location = New-Object System.Drawing.Point(420, 703)
 $startButton.Size = New-Object System.Drawing.Size(100, 25)
-$startButton.Text = "Indítás"  # [2] Rövidebb felirat
+$startButton.Text = "Indítás"
 $startButton.BackColor = "ForestGreen"
 $startButton.ForeColor = "White"
 $startButton.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
-$startButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1]
+$startButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $form.Controls.Add($startButton)
 
 $exitButton = New-Object System.Windows.Forms.Button
@@ -381,7 +388,7 @@ $exitButton.Text = "Kilépés"
 $exitButton.BackColor = "DarkRed"
 $exitButton.ForeColor = "White"
 $exitButton.Font = New-Object System.Drawing.Font("Arial", 9, [System.Drawing.FontStyle]::Bold)
-$exitButton.Cursor = [System.Windows.Forms.Cursors]::Hand  # [1]
+$exitButton.Cursor = [System.Windows.Forms.Cursors]::Hand
 $exitButton.Add_Click({
     if ($script:pythonProcess -and !$script:pythonProcess.HasExited) {
         Set-Content -Path (Join-Path $env:TEMP "ups_pod_stop.txt") -Value "stop" -Force
